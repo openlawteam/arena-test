@@ -23,7 +23,13 @@ type AgentMessage = {
   message: string;
   createdAt: string;
   deliveredAt: string | null;
-  deliveryStatus: "pending" | "notified" | "delivered" | "wake_failed";
+  readAt: string | null;
+  deliveryStatus:
+    | "pending"
+    | "notified"
+    | "delivered"
+    | "read"
+    | "wake_failed";
 };
 
 type WakeResult = {
@@ -381,13 +387,15 @@ export default function Home() {
                       <span
                         className={`delivery-state delivery-state--${message.deliveryStatus}`}
                       >
-                        {message.deliveredAt
-                          ? "DELIVERED"
-                          : message.deliveryStatus === "wake_failed"
-                            ? "OFFLINE"
-                            : message.deliveryStatus === "notified"
-                              ? "NOTIFIED"
-                              : "WAITING"}
+                        {message.readAt
+                          ? "READ"
+                          : message.deliveredAt
+                            ? "DELIVERED"
+                            : message.deliveryStatus === "wake_failed"
+                              ? "OFFLINE"
+                              : message.deliveryStatus === "notified"
+                                ? "NOTIFIED"
+                                : "WAITING"}
                       </span>
                     </span>
                   </div>

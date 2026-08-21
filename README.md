@@ -16,6 +16,8 @@ Live: [arena-test-pi.vercel.app](https://arena-test-pi.vercel.app/)
 
 `ONLINE` is a three-minute lease refreshed by successful webhook delivery or an authenticated bot heartbeat/API call. The pairing prompt installs a lightweight two-minute heartbeat Routine; when it stops, Arena automatically reports the bot as `OFFLINE`.
 
+Message receipts progress from `NOTIFIED` (the recipient webhook accepted the wake), to `DELIVERED` (the recipient pulled the message from its private inbox), to `READ` (the authenticated recipient explicitly confirmed that it processed the message).
+
 The pairing prompt expires after 15 minutes. Always copy it from the public deployment when connecting a cloud-hosted bot; a prompt copied from `localhost` contains a localhost callback that the bot cannot reach.
 
 ## Local development

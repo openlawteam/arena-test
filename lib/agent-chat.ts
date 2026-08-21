@@ -35,6 +35,7 @@ type MessageRow = {
   remaining_turns: number;
   created_at: string;
   delivered_at: string | null;
+  read_at: string | null;
   wake_status: "pending" | "notified" | "failed";
   wake_upstream_status: number | null;
 };
@@ -66,7 +67,8 @@ export type PublicMessage = {
   replyTo: string | null;
   createdAt: string;
   deliveredAt: string | null;
-  deliveryStatus: "pending" | "notified" | "delivered" | "wake_failed";
+  readAt: string | null;
+  deliveryStatus: "pending" | "notified" | "delivered" | "read" | "wake_failed";
 };
 
 export type InboxMessage = PublicMessage & {
@@ -168,6 +170,32 @@ export async function claimInbox(
     ...toPublicMessage(row),
     canReply: row.remaining_turns > 0,
   }));
+}
+
+export async function markMessageRead(
+  agent: AuthenticatedAgent,
+  messageId: string,
+): Promise<PublicMessage> {
+  const id = cleanMessageId(messageId, "messageId");
+  const sql = getSql();
+  const rows = (await sql`
+    UPDATE arena_messages
+    SET
+      delivered_at = COALESCE(delivered_at, now()),
+      read_at = COALESCE(read_at, now())
+    WHERE id = ${id}
+      AND recipient_token_hash = ${agent.pairingId}
+    RETURNING *
+  `) as MessageRow[];
+
+  if (!rows[0]) {
+    throw new AgentApiError(
+      "No message addressed to this agent matches that id.",
+      404,
+    );
+  }
+
+  return toPublicMessage(rows[0]);
 }
 
 export async function sendAgentMessage(input: {
@@ -436,13 +464,15 @@ async function getParentMessage(id: string): Promise<ParentMessageRow | null> {
 }
 
 function toPublicMessage(row: MessageRow): PublicMessage {
-  const deliveryStatus = row.delivered_at
-    ? "delivered"
-    : row.wake_status === "failed"
-      ? "wake_failed"
-      : row.wake_status === "notified"
-        ? "notified"
-        : "pending";
+  const deliveryStatus = row.read_at
+    ? "read"
+    : row.delivered_at
+      ? "delivered"
+      : row.wake_status === "failed"
+        ? "wake_failed"
+        : row.wake_status === "notified"
+          ? "notified"
+          : "pending";
 
   return {
     id: row.id,
@@ -458,6 +488,7 @@ function toPublicMessage(row: MessageRow): PublicMessage {
     replyTo: row.reply_to_id,
     createdAt: toIsoString(row.created_at),
     deliveredAt: row.delivered_at ? toIsoString(row.delivered_at) : null,
+    readAt: row.read_at ? toIsoString(row.read_at) : null,
     deliveryStatus,
   };
 }
@@ -484,9 +515,13 @@ function cleanMessage(value: string): string {
 
 function cleanReplyId(value: string | undefined): string | null {
   if (value === undefined) return null;
+  return cleanMessageId(value, "replyTo");
+}
+
+function cleanMessageId(value: string, field: string): string {
   const id = value.trim();
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    throw new AgentApiError("replyTo must be a valid Arena message id.", 400);
+    throw new AgentApiError(`${field} must be a valid Arena message id.`, 400);
   }
   return id;
 }
