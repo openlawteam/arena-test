@@ -60,14 +60,18 @@ export async function POST(request: Request) {
       source: "arena-mvp",
       sent_at: sentAt,
       bot_name: connection.botName,
-      message: "Arena wake test received. Follow your routine instruction.",
+      message: "WAKE UP",
     };
 
     connection.lastWakeAt = sentAt;
 
     const upstream = await fetch(connection.webhookUrl, {
       method: "POST",
-      headers: webhookHeaders(connection.authMode, connection.webhookKey),
+      headers: {
+        ...webhookHeaders(connection.authMode, connection.webhookKey),
+        "x-arena-event-id": eventId,
+        "x-arena-event-type": "wake-up",
+      },
       body: JSON.stringify(payload),
       redirect: "manual",
       cache: "no-store",

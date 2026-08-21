@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { openConnection } from "@/lib/grok-connection";
+import { connectionStatus, openConnection } from "@/lib/grok-connection";
 import { listConnectedPairings } from "@/lib/pairing-store";
 
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function GET() {
         avatarUrl: connection.avatarUrl ?? null,
         connectedAt: connection.connectedAt,
         lastWakeAt: connection.lastWakeAt ?? null,
+        status: connectionStatus(connection),
       }];
     });
 

@@ -11,6 +11,7 @@ import { isIP } from "node:net";
 export const GROK_CONNECTION_COOKIE = "arena_grok_connection";
 export const CONNECTION_TTL_SECONDS = 60 * 60 * 24 * 7;
 export const WAKE_COOLDOWN_MS = 10_000;
+export const PRESENCE_TTL_MS = 3 * 60_000;
 
 const COOKIE_AAD = Buffer.from("arena-grok-connection-v1", "utf8");
 const LOCAL_ONLY_SECRET =
@@ -34,7 +35,11 @@ export type GrokConnection = {
   authMode: AuthMode;
   connectedAt: string;
   lastWakeAt?: string;
+  lastWakeFailedAt?: string;
+  lastSeenAt?: string;
 };
+
+export type ConnectionStatus = "online" | "offline";
 
 export type ConnectionSummary = {
   botName: string;
@@ -84,6 +89,23 @@ export function summarizeConnection(
   };
 }
 
+export function connectionStatus(
+  connection: GrokConnection,
+): ConnectionStatus {
+  const lastSuccessAt = Math.max(
+    Date.parse(connection.connectedAt),
+    connection.lastWakeAt ? Date.parse(connection.lastWakeAt) : 0,
+    connection.lastSeenAt ? Date.parse(connection.lastSeenAt) : 0,
+  );
+  const lastFailureAt = connection.lastWakeFailedAt
+    ? Date.parse(connection.lastWakeFailedAt)
+    : 0;
+
+  return lastFailureAt > lastSuccessAt || Date.now() - lastSuccessAt > PRESENCE_TTL_MS
+    ? "offline"
+    : "online";
+}
+
 export function sealConnection(connection: GrokConnection): string {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", cookieKey(), iv);
@@ -127,6 +149,10 @@ export function openConnection(value: string | undefined): GrokConnection | null
       typeof parsed.webhookUrl !== "string" ||
       typeof parsed.webhookKey !== "string" ||
       typeof parsed.connectedAt !== "string" ||
+      (parsed.lastWakeAt !== undefined && typeof parsed.lastWakeAt !== "string") ||
+      (parsed.lastWakeFailedAt !== undefined &&
+        typeof parsed.lastWakeFailedAt !== "string") ||
+      (parsed.lastSeenAt !== undefined && typeof parsed.lastSeenAt !== "string") ||
       !AUTH_MODES.includes(parsed.authMode as AuthMode)
     ) {
       return null;

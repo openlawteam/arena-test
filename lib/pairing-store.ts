@@ -2,6 +2,8 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
+import { openConnection } from "@/lib/grok-connection";
+
 const PAIRING_TTL_MINUTES = 15;
 
 type PairingRow = {
@@ -63,19 +65,47 @@ export async function completePairing(
   encryptedConnection: string,
 ): Promise<boolean> {
   const sql = getSql();
+  const pairingId = hashSecret(pairingToken);
   const rows = await sql`
     UPDATE arena_pairings
     SET
       status = 'connected',
       encrypted_connection = ${encryptedConnection},
       connected_at = now()
-    WHERE token_hash = ${hashSecret(pairingToken)}
+    WHERE token_hash = ${pairingId}
       AND status = 'waiting'
       AND expires_at > now()
     RETURNING token_hash
   `;
 
-  return rows.length === 1;
+  if (rows.length !== 1) return false;
+
+  const newConnection = openConnection(encryptedConnection);
+  if (newConnection) {
+    const existingRows = (await sql`
+      SELECT token_hash, encrypted_connection
+      FROM arena_pairings
+      WHERE token_hash <> ${pairingId}
+        AND status = 'connected'
+        AND encrypted_connection IS NOT NULL
+    `) as ConnectedPairingRow[];
+
+    for (const existingRow of existingRows) {
+      const existingConnection = openConnection(
+        existingRow.encrypted_connection,
+      );
+      if (existingConnection?.webhookUrl !== newConnection.webhookUrl) continue;
+
+      await sql`
+        UPDATE arena_pairings
+        SET status = 'consumed', consumed_at = COALESCE(consumed_at, now())
+        WHERE token_hash = ${existingRow.token_hash}
+          AND status = 'connected'
+      `;
+    }
+  }
+
+  return true;
 }
 
 export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
@@ -90,6 +120,7 @@ export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
 
   if (!row) return { status: "missing" };
   if (Date.parse(row.expires_at) <= Date.now()) return { status: "expired" };
+  if (row.status === "consumed") return { status: "expired" };
   if (row.status !== "connected" || !row.encrypted_connection) {
     return { status: "waiting" };
   }

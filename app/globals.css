@@ -220,13 +220,86 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .agent-result--notified { color: var(--green); }
+.agent-result--online { color: rgba(32, 255, 79, 0.72); }
+.agent-result--offline { color: #ff746d; }
 .agent-result--failed { color: #ff746d; }
 .agent-result--cooldown { color: #e4c96c; }
+
+.agent-transcript {
+  width: min(400px, calc(100vw - 40px));
+  margin-top: 2px;
+  text-align: left;
+}
+
+.message-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.message-row {
+  padding: 13px 2px 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.message-meta,
+.message-route,
+.message-state {
+  display: flex;
+  align-items: center;
+}
+
+.message-meta {
+  min-width: 0;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.message-route {
+  min-width: 0;
+  gap: 6px;
+  color: rgba(244, 246, 240, 0.36);
+  font-size: 9px;
+}
+
+.message-route strong {
+  overflow: hidden;
+  color: rgba(244, 246, 240, 0.62);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-state {
+  flex: 0 0 auto;
+  gap: 7px;
+  color: rgba(244, 246, 240, 0.26);
+  font-size: 8px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+}
+
+.delivery-state--delivered,
+.delivery-state--notified { color: rgba(32, 255, 79, 0.58); }
+.delivery-state--wake_failed { color: #ff746d; }
+
+.message-row p {
+  margin: 7px 0 0;
+  color: rgba(244, 246, 240, 0.74);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
 
 @media (max-width: 680px) {
   .arena-page { padding-inline: 16px; }
   .pair-hero { min-height: 100svh; }
   .arena-brand { width: 126px; }
+
+  .agent-roster,
+  .agent-transcript {
+    width: min(100%, 400px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

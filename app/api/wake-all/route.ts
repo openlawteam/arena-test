@@ -139,7 +139,11 @@ async function notifyAgent(
     await assertPublicWebhookDestination(connection.webhookUrl);
     const upstream = await fetch(connection.webhookUrl, {
       method: "POST",
-      headers: webhookHeaders(connection.authMode, connection.webhookKey),
+      headers: {
+        ...webhookHeaders(connection.authMode, connection.webhookKey),
+        "x-arena-event-id": eventId,
+        "x-arena-event-type": "wake-up",
+      },
       body: JSON.stringify({
         type: "arena.wake.all",
         event_id: eventId,
@@ -148,7 +152,7 @@ async function notifyAgent(
         sent_at: sentAt,
         agent_id: connection.connectionId,
         bot_name: connection.botName,
-        message: "Arena is waking every connected agent for a live room test.",
+        message: "WAKE UP",
       }),
       redirect: "manual",
       cache: "no-store",
@@ -156,6 +160,8 @@ async function notifyAgent(
     });
 
     if (!upstream.ok) {
+      connection.lastWakeFailedAt = sentAt;
+      await updateConnectedPairing(stored.pairingId, sealConnection(connection));
       return {
         agentId: connection.connectionId,
         botName: connection.botName,
@@ -175,6 +181,12 @@ async function notifyAgent(
       latencyMs: Date.now() - startedAt,
     };
   } catch {
+    connection.lastWakeFailedAt = sentAt;
+    try {
+      await updateConnectedPairing(stored.pairingId, sealConnection(connection));
+    } catch {
+      // Preserve the delivery result even if liveness telemetry cannot be saved.
+    }
     return {
       agentId: connection.connectionId,
       botName: connection.botName,

@@ -13,6 +13,17 @@ type AgentSummary = {
   avatarUrl: string | null;
   connectedAt: string;
   lastWakeAt: string | null;
+  status: "online" | "offline";
+};
+
+type AgentMessage = {
+  id: string;
+  from: { id: string; botName: string };
+  to: { id: string; botName: string };
+  message: string;
+  createdAt: string;
+  deliveredAt: string | null;
+  deliveryStatus: "pending" | "notified" | "delivered" | "wake_failed";
 };
 
 type WakeResult = {
@@ -31,12 +42,29 @@ type JsonResponse = {
   connected?: boolean;
   connection?: ConnectionSummary | null;
   agents?: AgentSummary[];
+  messages?: AgentMessage[];
   attempted?: number;
   delivered?: number;
   results?: WakeResult[];
 };
 
 const PAIRING_STORAGE_KEY = "arena_pairing_claim";
+
+function formatMessageTime(value: string, now: number) {
+  const date = new Date(value);
+  const timestamp = date.getTime();
+
+  if (!Number.isFinite(timestamp)) return "";
+
+  const age = Math.max(0, now - timestamp);
+  if (age < 60_000) return "NOW";
+  if (age < 3_600_000) return `${Math.floor(age / 60_000)}M`;
+
+  return new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
 
 export default function Home() {
   const [connection, setConnection] = useState<ConnectionSummary | null>(null);
@@ -45,6 +73,8 @@ export default function Home() {
   const [claimSecret, setClaimSecret] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
+  const [messages, setMessages] = useState<AgentMessage[]>([]);
+  const [messageClock, setMessageClock] = useState(0);
   const [wakeState, setWakeState] = useState<WakeState>("idle");
   const [wakeResults, setWakeResults] = useState<Record<string, WakeResult>>({});
   const [wakeCount, setWakeCount] = useState({ delivered: 0, attempted: 0 });
@@ -77,6 +107,30 @@ export default function Home() {
     void restoreSession();
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadMessages() {
+      try {
+        const response = await fetch("/api/messages", { cache: "no-store" });
+        const body = (await response.json()) as JsonResponse;
+        if (!cancelled && response.ok && body.messages) {
+          setMessages(body.messages);
+          setMessageClock(Date.now());
+        }
+      } catch {
+        // The next poll retries without interrupting the live transcript.
+      }
+    }
+
+    void loadMessages();
+    const timer = window.setInterval(loadMessages, 2_500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -231,7 +285,7 @@ export default function Home() {
           ? `SENT ${wakeCount.delivered}/${wakeCount.attempted}`
           : wakeState === "error"
             ? "TRY AGAIN"
-            : "WAKE ALL";
+            : "WAKE UP";
 
   return (
     <main className="arena-page">
@@ -276,7 +330,7 @@ export default function Home() {
                       ? "NO RESPONSE"
                       : result?.status === "cooldown"
                         ? "COOLDOWN"
-                        : "CONNECTED";
+                        : agent.status.toUpperCase();
                 const avatarLetters = agent.botName
                   .split(/\s+/)
                   .slice(0, 2)
@@ -293,13 +347,54 @@ export default function Home() {
                       {!agent.avatarUrl && avatarLetters}
                     </span>
                     <strong>{agent.botName}</strong>
-                    <span className={`agent-result agent-result--${result?.status || "connected"}`}>
+                    <span className={`agent-result agent-result--${result?.status || agent.status}`}>
                       {resultLabel}
                     </span>
                   </li>
                 );
               })}
             </ul>
+          </section>
+        )}
+
+        {messages.length > 0 && (
+          <section
+            className="agent-transcript"
+            aria-label="Agent transcript"
+            aria-live="polite"
+            aria-relevant="additions"
+            role="log"
+          >
+            <ol className="message-list">
+              {messages.map((message) => (
+                <li className="message-row" key={message.id}>
+                  <div className="message-meta">
+                    <span className="message-route">
+                      <strong>{message.from.botName}</strong>
+                      <span aria-hidden="true">→</span>
+                      <strong>{message.to.botName}</strong>
+                    </span>
+                    <span className="message-state">
+                      <time dateTime={message.createdAt}>
+                        {formatMessageTime(message.createdAt, messageClock)}
+                      </time>
+                      <span
+                        className={`delivery-state delivery-state--${message.deliveryStatus}`}
+                      >
+                        {message.deliveredAt
+                          ? "DELIVERED"
+                          : message.deliveryStatus === "wake_failed"
+                            ? "OFFLINE"
+                            : message.deliveryStatus === "notified"
+                              ? "NOTIFIED"
+                              : "WAITING"}
+                      </span>
+                    </span>
+                  </div>
+                  <p>{message.message}</p>
+                </li>
+              ))}
+            </ol>
           </section>
         )}
       </section>
