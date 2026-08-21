@@ -1,0 +1,239 @@
+@import "tailwindcss";
+
+:root {
+  --ink: #050706;
+  --paper: #f4f6f0;
+  --green: #20ff4f;
+  --red: #ff5c56;
+}
+
+* { box-sizing: border-box; }
+
+html {
+  min-width: 320px;
+  background: var(--ink);
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(circle at 50% 18%, rgba(32, 255, 79, 0.055), transparent 31rem),
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    var(--ink);
+  background-size: auto, 40px 40px, 40px 40px, auto;
+  color: var(--paper);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+button { font: inherit; }
+button, a { -webkit-tap-highlight-color: transparent; }
+
+.arena-page {
+  width: min(100%, 1440px);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 0 clamp(20px, 4vw, 64px);
+}
+
+.pair-hero {
+  display: flex;
+  min-height: 100vh;
+  padding: clamp(64px, 9vh, 104px) 0;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+  justify-content: center;
+  text-align: center;
+}
+
+.arena-brand {
+  position: relative;
+  display: inline-flex;
+  width: 152px;
+  aspect-ratio: 216 / 40;
+  isolation: isolate;
+}
+
+.arena-logo,
+.arena-brand::after {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    108deg,
+    #f4f6f0 0%,
+    #d5f8e2 15%,
+    #caf6f4 34%,
+    #e2daf4 53%,
+    #f7d7e8 70%,
+    #f3f8d3 86%,
+    #d7f8ea 100%
+  );
+  background-size: 240% 100%;
+  -webkit-mask: url("/arena-logo.svg") center / 100% 100% no-repeat;
+  mask: url("/arena-logo.svg") center / 100% 100% no-repeat;
+  animation: arena-borealis 11s ease-in-out infinite alternate;
+}
+
+.arena-logo {
+  position: relative;
+  z-index: 1;
+  filter: saturate(0.85) brightness(1.02) drop-shadow(0 0 2px rgba(108, 255, 204, 0.2));
+}
+
+.arena-brand::after {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  content: "";
+  opacity: 0.18;
+  filter: blur(6px) saturate(0.8);
+}
+
+.arena-brand:hover .arena-logo,
+.arena-brand:focus-visible .arena-logo {
+  filter: saturate(1) brightness(1.05) drop-shadow(0 0 3px rgba(111, 255, 208, 0.26));
+}
+
+@keyframes arena-borealis {
+  0% { background-position: 0% 50%; }
+  45% { background-position: 58% 50%; }
+  100% { background-position: 100% 50%; }
+}
+
+.pair-button {
+  display: flex;
+  max-width: calc(100vw - 40px);
+  align-items: center;
+  border-radius: 999px;
+  background: #141615;
+  color: rgba(244, 246, 240, 0.9);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07),
+    inset 0 1px 0 rgba(80, 80, 80, 0.3),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.3);
+}
+
+.pair-button {
+  height: 40px;
+  padding: 0 16px;
+  border: 0;
+  outline: none;
+  cursor: pointer;
+  transition: background-color 200ms ease, box-shadow 200ms ease, color 200ms ease;
+}
+
+.pair-button:not(:disabled):hover,
+.pair-button:not(:disabled):focus-visible {
+  background: #222523;
+  color: var(--paper);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(110, 110, 110, 0.34),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.36),
+    0 0 0 3px rgba(32, 255, 79, 0.12);
+}
+
+.pair-button:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.pair-button--copied,
+.pair-button--copied:not(:disabled):hover,
+.pair-button--copied:not(:disabled):focus-visible {
+  background: var(--green);
+  color: var(--ink);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    0 0 18px rgba(32, 255, 79, 0.22);
+}
+
+.pair-button strong {
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.wake-button--done,
+.wake-button--partial {
+  color: var(--green);
+}
+
+.wake-button--error {
+  color: #ff8d87;
+}
+
+.agent-roster {
+  width: min(400px, calc(100vw - 40px));
+  margin-top: 14px;
+  text-align: left;
+}
+
+.agent-list {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.agent-row {
+  display: grid;
+  min-height: 50px;
+  padding: 9px 2px;
+  align-items: center;
+  border-top: 1px solid rgba(255, 255, 255, 0.045);
+  column-gap: 10px;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+}
+
+.roster-avatar {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: #202421 center / cover no-repeat;
+  color: rgba(244, 246, 240, 0.78);
+  font-size: 9px;
+  font-weight: 900;
+}
+
+.roster-avatar--image { color: transparent; }
+
+.agent-row > strong {
+  overflow: hidden;
+  color: rgba(244, 246, 240, 0.82);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-result {
+  color: rgba(244, 246, 240, 0.34);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+}
+
+.agent-result--notified { color: var(--green); }
+.agent-result--failed { color: #ff746d; }
+.agent-result--cooldown { color: #e4c96c; }
+
+@media (max-width: 680px) {
+  .arena-page { padding-inline: 16px; }
+  .pair-hero { min-height: 100svh; }
+  .arena-brand { width: 126px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pair-button { transition: none; }
+  .arena-logo,
+  .arena-brand::after { animation: none; }
+}
+
+/* Keep the central stage free of the page grid during style hot reloads. */
+.pair-hero { background: var(--ink) !important; }
