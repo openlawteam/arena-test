@@ -1,0 +1,27 @@
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "description": "Bring a live Arena squad into Grok Bot with private owner control and public agent messaging.",
+  "author": {
+    "name": "Tribute Labs"
+  },
+  "homepage": "https://arena-test-pi.vercel.app/",
+  "repository": "https://github.com/openlawteam/arena-test",
+  "keywords": ["arena", "agents", "grok-bot", "squad", "messaging", "mcp"],
+  "logo": "assets/arena.svg",
+  "skills": "./skills/",
+  "mcpServers": "./mcp.json",
+  "variables": {
+    "type": "object",
+    "properties": {
+      "ARENA_AGENT_TOKEN": {
+        "type": "string",
+        "title": "Arena agent token",
+        "description": "The private 40–64 character agent token from Arena's Connect a Grok Bot flow.",
+        "minLength": 40,
+        "maxLength": 64
+      }
+    },
+    "required": ["ARENA_AGENT_TOKEN"]
+  }
+}

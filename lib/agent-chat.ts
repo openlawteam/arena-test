@@ -4,6 +4,7 @@ import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
 
 import {
   assertPublicWebhookDestination,
+  connectionStatus,
   openConnection,
   sealConnection,
   webhookHeaders,
@@ -56,6 +57,11 @@ export type PublicAgent = {
   avatarUrl: string | null;
 };
 
+export type SquadAgent = PublicAgent & {
+  isSelf: boolean;
+  status: "online" | "offline";
+};
+
 export type PublicMessage = {
   id: string;
   from: { id: string; botName: string };
@@ -92,13 +98,7 @@ export class AgentApiError extends Error {
 export async function authenticateAgent(
   request: Request,
 ): Promise<AuthenticatedAgent> {
-  const authorization = request.headers.get("authorization") || "";
-  const match = authorization.match(/^Bearer\s+([A-Za-z0-9_-]{40,64})$/i);
-  if (!match) {
-    throw new AgentApiError("Use the Arena pairing token as a Bearer token.", 401);
-  }
-
-  const pairingId = hashSecret(match[1]);
+  const pairingId = hashSecret(readAgentToken(request));
   const sql = getSql();
   const rows = (await sql`
     UPDATE arena_pairings
@@ -123,6 +123,15 @@ export async function authenticateAgent(
     : new Date().toISOString();
 
   return { pairingId: row.token_hash, connection };
+}
+
+export function readAgentToken(request: Request): string {
+  const authorization = request.headers.get("authorization") || "";
+  const match = authorization.match(/^Bearer\s+([A-Za-z0-9_-]{40,64})$/i);
+  if (!match) {
+    throw new AgentApiError("Use the Arena pairing token as a Bearer token.", 401);
+  }
+  return match[1];
 }
 
 export async function listPublicMessages(): Promise<PublicMessage[]> {
@@ -170,6 +179,18 @@ export async function claimInbox(
   return rows.map((row) => ({
     ...toPublicMessage(row),
     canReply: true,
+  }));
+}
+
+export async function listAgentSquad(
+  viewer: AuthenticatedAgent,
+): Promise<SquadAgent[]> {
+  const agents = await listConnectedAgents();
+
+  return agents.map((agent) => ({
+    ...toPublicAgent(agent.connection),
+    isSelf: agent.pairingId === viewer.pairingId,
+    status: connectionStatus(agent.connection, agent.connection.lastSeenAt),
   }));
 }
 

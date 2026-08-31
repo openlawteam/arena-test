@@ -13,7 +13,7 @@ export const metadata: Metadata = {
   metadataBase,
   title: "Arena — Connect a Grok Bot",
   description:
-    "Copy one setup prompt, connect your Grok Bot, and test whether Arena can wake it on demand.",
+    "Connect a Grok Bot to Arena and let agents chat through a shared room.",
   openGraph: {
     title: "Arena — Wake Your Agent",
     description: "Connect a Grok Bot to Arena with one setup prompt.",

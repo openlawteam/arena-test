@@ -42,6 +42,7 @@ type WakeResult = {
 
 type JsonResponse = {
   error?: string;
+  agentToken?: string;
   claimSecret?: string;
   prompt?: string;
   status?: string;
@@ -55,6 +56,8 @@ type JsonResponse = {
 };
 
 const PAIRING_STORAGE_KEY = "arena_pairing_claim";
+const GROK_BOT_DEEP_LINK = "grokbot://";
+const GROK_BOT_FALLBACK_URL = "https://docs.x.ai/grok-bot/get-started";
 
 function formatMessageTime(value: string, now: number) {
   const date = new Date(value);
@@ -76,7 +79,9 @@ export default function Home() {
   const [connection, setConnection] = useState<ConnectionSummary | null>(null);
   const [pairingState, setPairingState] = useState<PairingState>("idle");
   const [copyConfirmed, setCopyConfirmed] = useState(false);
+  const [pluginTokenCopied, setPluginTokenCopied] = useState(false);
   const [claimSecret, setClaimSecret] = useState<string | null>(null);
+  const [agentToken, setAgentToken] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -211,6 +216,13 @@ export default function Home() {
   }, [copyConfirmed]);
 
   useEffect(() => {
+    if (!pluginTokenCopied) return;
+
+    const timer = window.setTimeout(() => setPluginTokenCopied(false), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [pluginTokenCopied]);
+
+  useEffect(() => {
     if (wakeState !== "done" && wakeState !== "partial") return;
 
     const timer = window.setTimeout(() => setWakeState("idle"), 10_000);
@@ -219,7 +231,7 @@ export default function Home() {
 
   async function copySetupPrompt() {
     if (prompt) {
-      await copyToClipboard(prompt);
+      if (await copyToClipboard(prompt)) launchGrokBot();
       return;
     }
 
@@ -228,27 +240,58 @@ export default function Home() {
     try {
       const response = await fetch("/api/pairing", { method: "POST" });
       const body = (await response.json()) as JsonResponse;
-      if (!response.ok || !body.prompt || !body.claimSecret) {
+      if (!response.ok || !body.prompt || !body.claimSecret || !body.agentToken) {
         throw new Error(body.error || "Arena could not create the setup prompt.");
       }
 
       setPrompt(body.prompt);
       setClaimSecret(body.claimSecret);
+      setAgentToken(body.agentToken);
       window.sessionStorage.setItem(PAIRING_STORAGE_KEY, body.claimSecret);
-      await copyToClipboard(body.prompt);
+      if (await copyToClipboard(body.prompt)) launchGrokBot();
     } catch {
       setPairingState("error");
     }
   }
 
-  async function copyToClipboard(value: string) {
+  async function copyPluginToken() {
+    if (!agentToken) return;
+
+    try {
+      await navigator.clipboard.writeText(agentToken);
+      setPluginTokenCopied(true);
+      launchGrokBot();
+    } catch {
+      setPairingState("error");
+    }
+  }
+
+  async function copyToClipboard(value: string): Promise<boolean> {
     try {
       await navigator.clipboard.writeText(value);
       setPairingState("waiting");
       setCopyConfirmed(true);
+      return true;
     } catch {
       setPairingState("error");
+      return false;
     }
+  }
+
+  function launchGrokBot() {
+    let appOpened = false;
+    const noteVisibility = () => {
+      if (document.visibilityState === "hidden") appOpened = true;
+    };
+
+    document.addEventListener("visibilitychange", noteVisibility);
+    window.location.assign(GROK_BOT_DEEP_LINK);
+    window.setTimeout(() => {
+      document.removeEventListener("visibilitychange", noteVisibility);
+      if (!appOpened && document.visibilityState === "visible") {
+        window.open(GROK_BOT_FALLBACK_URL, "_blank", "noopener,noreferrer");
+      }
+    }, 3_000);
   }
 
   async function wakeAllAgents() {
@@ -275,12 +318,12 @@ export default function Home() {
 
   const buttonLabel =
     copyConfirmed
-      ? "COPIED"
+      ? "PROMPT COPIED · OPENING GROK BOT"
       : pairingState === "copying"
-      ? "BUILDING"
+      ? "PREPARING"
       : connection
         ? "CONNECTED"
-        : "COPY GROK PROMPT";
+        : "CONNECT A GROK BOT";
 
   const wakeLabel =
     wakeState === "waking"
@@ -300,19 +343,34 @@ export default function Home() {
           <span className="arena-logo" aria-hidden="true" />
         </a>
         {connection ? (
-          <button
-            className={`pair-button wake-button wake-button--${wakeState}`}
-            disabled={
-              agents.length === 0 ||
-              wakeState === "waking" ||
-              wakeState === "done" ||
-              wakeState === "partial"
-            }
-            onClick={wakeAllAgents}
-            type="button"
-          >
-            <strong>{wakeLabel}</strong>
-          </button>
+          <div className="pair-actions">
+            <button
+              className={`pair-button wake-button wake-button--${wakeState}`}
+              disabled={
+                agents.length === 0 ||
+                wakeState === "waking" ||
+                wakeState === "done" ||
+                wakeState === "partial"
+              }
+              onClick={wakeAllAgents}
+              type="button"
+            >
+              <strong>{wakeLabel}</strong>
+            </button>
+            {agentToken && (
+              <button
+                className={`pair-button${pluginTokenCopied ? " pair-button--copied" : ""}`}
+                onClick={copyPluginToken}
+                type="button"
+              >
+                <strong>
+                  {pluginTokenCopied
+                    ? "PLUGIN TOKEN COPIED · OPENING GROK BOT"
+                    : "COPY PLUGIN TOKEN"}
+                </strong>
+              </button>
+            )}
+          </div>
         ) : (
           <button
             className={`pair-button pair-button--${copyConfirmed ? "copied" : pairingState}`}

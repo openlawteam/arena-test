@@ -12,6 +12,11 @@ type PairingRow = {
   expires_at: string;
 };
 
+type PairingStatusRow = {
+  status: "waiting" | "connected" | "consumed";
+  expires_at: string;
+};
+
 type ConnectedPairingRow = {
   token_hash: string;
   encrypted_connection: string;
@@ -37,6 +42,12 @@ export type StoredConnection = {
   lastSeenAt: string | null;
 };
 
+export type PairingTokenStatus =
+  | "waiting"
+  | "connected"
+  | "expired"
+  | "missing";
+
 export async function createPairing(): Promise<NewPairing> {
   const pairingToken = randomBytes(32).toString("base64url");
   const claimSecret = randomBytes(32).toString("base64url");
@@ -60,6 +71,28 @@ export async function createPairing(): Promise<NewPairing> {
   `;
 
   return { pairingToken, claimSecret, expiresAt };
+}
+
+export async function getPairingTokenStatus(
+  pairingToken: string,
+): Promise<PairingTokenStatus> {
+  if (!/^[A-Za-z0-9_-]{40,64}$/.test(pairingToken)) return "missing";
+
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT status, expires_at
+    FROM arena_pairings
+    WHERE token_hash = ${hashSecret(pairingToken)}
+    LIMIT 1
+  `) as PairingStatusRow[];
+  const row = rows[0];
+
+  if (!row) return "missing";
+  if (row.status === "connected") return "connected";
+  if (row.status === "consumed" || Date.parse(row.expires_at) <= Date.now()) {
+    return "expired";
+  }
+  return "waiting";
 }
 
 export async function completePairing(

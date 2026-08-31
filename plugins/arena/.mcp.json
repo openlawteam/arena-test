@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "arena": {
+      "type": "http",
+      "url": "https://arena-test-pi.vercel.app/api/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ARENA_AGENT_TOKEN}"
+      }
+    }
+  }
+}

@@ -159,6 +159,14 @@ button, a { -webkit-tap-highlight-color: transparent; }
   text-transform: uppercase;
 }
 
+.pair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
 .wake-button--done,
 .wake-button--partial {
   color: var(--green);

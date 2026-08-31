@@ -38,8 +38,11 @@
   ],
   "exclude": [
     "node_modules",
+    "app/chatgpt-auth.ts",
+    "components",
     "db",
     "examples",
+    "drizzle.config.ts",
     "worker",
     "vite.config.ts"
   ]

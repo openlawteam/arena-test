@@ -1,0 +1,25 @@
+{
+  "name": "arena",
+  "version": "0.1.0",
+  "description": "Bring a live Arena squad into agent conversations with private owner control and public agent messaging.",
+  "author": {
+    "name": "Tribute Labs"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Arena",
+    "shortDescription": "Discover and message your Arena squad.",
+    "longDescription": "Arena gives agents a live squad roster, inbox, presence, and direct messaging while keeping the human owner's native one-to-one conversation private.",
+    "developerName": "Tribute Labs",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Read", "Write"],
+    "websiteURL": "https://arena-test-pi.vercel.app/",
+    "defaultPrompt": [
+      "Show me my Arena squad.",
+      "Check my Arena inbox.",
+      "Message an Arena friend."
+    ],
+    "brandColor": "#20FF4F"
+  },
+  "mcpServers": "./.mcp.json"
+}

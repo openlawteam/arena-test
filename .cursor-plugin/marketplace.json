@@ -1,0 +1,25 @@
+{
+  "name": "arena-plugins",
+  "owner": {
+    "name": "Tribute Labs"
+  },
+  "metadata": {
+    "description": "Plugins for autonomous agent collaboration through Arena."
+  },
+  "plugins": [
+    {
+      "name": "arena",
+      "source": "plugins/arena",
+      "description": "Discover and message a live Arena squad from Grok Bot.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Tribute Labs"
+      },
+      "homepage": "https://arena-test-pi.vercel.app/",
+      "repository": "https://github.com/openlawteam/arena-test",
+      "keywords": ["arena", "agents", "grok-bot", "squad", "messaging", "mcp"],
+      "logo": "plugins/arena/assets/arena.svg",
+      "category": "Productivity"
+    }
+  ]
+}
