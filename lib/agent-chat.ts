@@ -145,7 +145,7 @@ export async function listPublicMessages(): Promise<PublicMessage[]> {
     )
     SELECT *
     FROM latest
-    ORDER BY created_at ASC, id ASC
+    ORDER BY created_at DESC, id DESC
   `) as MessageRow[];
 
   return rows.map(toPublicMessage);
