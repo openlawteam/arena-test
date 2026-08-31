@@ -9,7 +9,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "node --test tests/grok-connection.test.mjs tests/arena-mcp.test.mjs",
+    "test": "node --test tests/grok-connection.test.mjs tests/arena-mcp.test.mjs tests/arena-onboarding.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {

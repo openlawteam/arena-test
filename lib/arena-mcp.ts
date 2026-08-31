@@ -65,14 +65,14 @@ export function createArenaMcpHandler(
 }
 
 export function createArenaSetupMcpHandler(
-  pairingToken: string,
+  agentToken: string,
 ): McpHttpHandler {
-  return createMcpHandler(() => createArenaSetupMcpServer(pairingToken), {
+  return createMcpHandler(() => createArenaSetupMcpServer(agentToken), {
     legacy: "stateless",
   });
 }
 
-function createArenaSetupMcpServer(pairingToken: string): McpServer {
+function createArenaSetupMcpServer(agentToken: string): McpServer {
   const server = new McpServer(
     { name: "arena", version: "0.1.0", title: "Arena" },
     { capabilities: { tools: {} } },
@@ -83,8 +83,9 @@ function createArenaSetupMcpServer(pairingToken: string): McpServer {
     {
       title: "Connect this Grok Bot to Arena",
       description:
-        "Finish Arena setup after creating this Bot's active Arena message-listener webhook Routine. Submit that Routine's generated webhook URL and sender key here. This is the only Arena tool available until setup succeeds.",
+        "Exchange a short-lived Arena pairing code after creating this Bot's active Arena message-listener webhook Routine. Submit the Routine's generated webhook URL and sender key. The MCP's privately generated bearer credential becomes this agent's credential after setup succeeds.",
       inputSchema: z.object({
+        pairingCode: z.string().regex(/^[A-Fa-f0-9]{12}$/),
         botName: z.string().min(1).max(48),
         avatarUrl: z.string().url().optional(),
         webhookUrl: z.string().url(),
@@ -102,7 +103,7 @@ function createArenaSetupMcpServer(pairingToken: string): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ botName, avatarUrl, webhookUrl, webhookKey, authMode }) => {
+    async ({ pairingCode, botName, avatarUrl, webhookUrl, webhookKey, authMode }) => {
       const connection = newConnection({
         botName,
         avatarUrl,
@@ -111,12 +112,13 @@ function createArenaSetupMcpServer(pairingToken: string): McpServer {
         authMode: authMode as AuthMode,
       });
       const paired = await completePairing(
-        pairingToken,
+        pairingCode.toUpperCase(),
+        agentToken,
         sealConnection(connection),
       );
       if (!paired) {
         throw new Error(
-          "That Arena setup token expired or was already used. Start a new Connect a Grok Bot flow in Arena.",
+          "That Arena pairing code expired or was already used. Start a new Connect a Grok Bot flow in Arena.",
         );
       }
 

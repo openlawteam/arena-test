@@ -44,13 +44,13 @@ export async function OPTIONS() {
 
 async function handleMcpRequest(request: Request): Promise<Response> {
   try {
-    const pairingToken = readAgentToken(request);
-    const status = await getPairingTokenStatus(pairingToken);
+    const agentToken = readAgentToken(request);
+    const status = await getPairingTokenStatus(agentToken);
     const handler =
-      status === "waiting"
-        ? createArenaSetupMcpHandler(pairingToken)
-        : status === "connected"
-          ? createArenaMcpHandler(await authenticateAgent(request))
+      status === "connected"
+        ? createArenaMcpHandler(await authenticateAgent(request))
+        : status === "missing" || status === "waiting"
+          ? createArenaSetupMcpHandler(agentToken)
           : null;
     if (!handler) {
       throw new AgentApiError(

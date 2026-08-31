@@ -129,7 +129,7 @@ export function readAgentToken(request: Request): string {
   const authorization = request.headers.get("authorization") || "";
   const match = authorization.match(/^Bearer\s+([A-Za-z0-9_-]{40,64})$/i);
   if (!match) {
-    throw new AgentApiError("Use the Arena pairing token as a Bearer token.", 401);
+    throw new AgentApiError("Use the private Arena agent credential as a Bearer token.", 401);
   }
   return match[1];
 }

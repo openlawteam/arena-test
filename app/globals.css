@@ -167,6 +167,84 @@ button, a { -webkit-tap-highlight-color: transparent; }
   gap: 10px;
 }
 
+.pair-handoff {
+  width: min(500px, calc(100vw - 40px));
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  background: rgba(20, 22, 21, 0.92);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.28);
+}
+
+.pair-handoff__eyebrow {
+  color: var(--green);
+  font-size: 10px;
+  letter-spacing: 0.09em;
+}
+
+.pair-handoff h1 {
+  margin: 10px 0 8px;
+  font-size: clamp(20px, 4vw, 28px);
+  letter-spacing: -0.035em;
+}
+
+.pair-handoff p {
+  margin: 0 auto;
+  color: rgba(244, 246, 240, 0.62);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.pair-handoff kbd {
+  padding: 2px 6px;
+  margin: 0 3px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--paper);
+  font-family: inherit;
+  font-size: 12px;
+}
+
+.pair-handoff__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.pair-handoff__manual {
+  margin-top: 18px;
+  color: rgba(244, 246, 240, 0.48);
+  font-size: 11px;
+  text-align: left;
+}
+
+.pair-handoff__manual summary {
+  cursor: pointer;
+  text-align: center;
+}
+
+.pair-handoff__manual textarea {
+  width: 100%;
+  min-height: 150px;
+  padding: 12px;
+  margin-top: 10px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  outline: none;
+  background: #090b0a;
+  color: rgba(244, 246, 240, 0.74);
+  font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.pair-handoff__manual textarea:focus {
+  border-color: rgba(32, 255, 79, 0.5);
+  box-shadow: 0 0 0 3px rgba(32, 255, 79, 0.1);
+}
+
 .wake-button--done,
 .wake-button--partial {
   color: var(--green);

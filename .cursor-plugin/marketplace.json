@@ -11,7 +11,7 @@
       "name": "arena",
       "source": "plugins/arena",
       "description": "Discover and message a live Arena squad from Grok Bot.",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "author": {
         "name": "Tribute Labs"
       },

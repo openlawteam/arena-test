@@ -26,7 +26,7 @@ type ConnectedPairingRow = {
 let sqlClient: NeonQueryFunction<false, false> | null = null;
 
 export type NewPairing = {
-  pairingToken: string;
+  pairingCode: string;
   claimSecret: string;
   expiresAt: string;
 };
@@ -49,7 +49,7 @@ export type PairingTokenStatus =
   | "missing";
 
 export async function createPairing(): Promise<NewPairing> {
-  const pairingToken = randomBytes(32).toString("base64url");
+  const pairingCode = randomBytes(6).toString("hex").toUpperCase();
   const claimSecret = randomBytes(32).toString("base64url");
   const expiresAt = new Date(
     Date.now() + PAIRING_TTL_MINUTES * 60_000,
@@ -63,26 +63,26 @@ export async function createPairing(): Promise<NewPairing> {
       status,
       expires_at
     ) VALUES (
-      ${hashSecret(pairingToken)},
+      ${hashSecret(pairingCode)},
       ${hashSecret(claimSecret)},
       'waiting',
       ${expiresAt}
     )
   `;
 
-  return { pairingToken, claimSecret, expiresAt };
+  return { pairingCode, claimSecret, expiresAt };
 }
 
 export async function getPairingTokenStatus(
-  pairingToken: string,
+  agentToken: string,
 ): Promise<PairingTokenStatus> {
-  if (!/^[A-Za-z0-9_-]{40,64}$/.test(pairingToken)) return "missing";
+  if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) return "missing";
 
   const sql = getSql();
   const rows = (await sql`
     SELECT status, expires_at
     FROM arena_pairings
-    WHERE token_hash = ${hashSecret(pairingToken)}
+    WHERE token_hash = ${hashSecret(agentToken)}
     LIMIT 1
   `) as PairingStatusRow[];
   const row = rows[0];
@@ -96,19 +96,25 @@ export async function getPairingTokenStatus(
 }
 
 export async function completePairing(
-  pairingToken: string,
+  pairingCode: string,
+  agentToken: string,
   encryptedConnection: string,
 ): Promise<boolean> {
   const sql = getSql();
-  const pairingId = hashSecret(pairingToken);
+  if (!/^[A-F0-9]{12}$/.test(pairingCode)) return false;
+  if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) return false;
+
+  const pendingPairingId = hashSecret(pairingCode);
+  const pairingId = hashSecret(agentToken);
   const rows = await sql`
     UPDATE arena_pairings
     SET
+      token_hash = ${pairingId},
       status = 'connected',
       encrypted_connection = ${encryptedConnection},
       connected_at = now(),
       last_seen_at = now()
-    WHERE token_hash = ${pairingId}
+    WHERE token_hash = ${pendingPairingId}
       AND status = 'waiting'
       AND expires_at > now()
     RETURNING token_hash

@@ -31,11 +31,15 @@ export async function POST(request: Request) {
     }
 
     const body = JSON.parse(text) as Record<string, unknown>;
-    const pairingToken = String(body.pairingToken || "");
+    const pairingCode = String(body.pairingCode || "").toUpperCase();
+    const agentToken = String(body.agentToken || "");
     const authMode = String(body.authMode || "bearer") as AuthMode;
 
-    if (pairingToken.length < 40 || pairingToken.length > 64) {
-      throw new ConnectionError("That pairing token is invalid or expired.");
+    if (!/^[A-F0-9]{12}$/.test(pairingCode)) {
+      throw new ConnectionError("That pairing code is invalid or expired.");
+    }
+    if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) {
+      throw new ConnectionError("Generate a valid private agent credential.");
     }
     if (!AUTH_MODES.includes(authMode)) {
       throw new ConnectionError("Choose a supported key format.");
@@ -50,11 +54,12 @@ export async function POST(request: Request) {
     });
 
     const paired = await completePairing(
-      pairingToken,
+      pairingCode,
+      agentToken,
       sealConnection(connection),
     );
     if (!paired) {
-      throw new ConnectionError("That pairing token is invalid, expired, or already used.");
+      throw new ConnectionError("That pairing code is invalid, expired, or already used.");
     }
 
     return NextResponse.json(

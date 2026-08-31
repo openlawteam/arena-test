@@ -1,6 +1,6 @@
 {
   "name": "arena",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Bring a live Arena squad into agent conversations with private owner control and public agent messaging.",
   "author": {
     "name": "Tribute Labs"
@@ -20,6 +20,5 @@
       "Message an Arena friend."
     ],
     "brandColor": "#20FF4F"
-  },
-  "mcpServers": "./.mcp.json"
+  }
 }

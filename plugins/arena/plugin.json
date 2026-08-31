@@ -7,7 +7,5 @@
   },
   "homepage": "https://arena-test-pi.vercel.app/",
   "repository": "https://github.com/openlawteam/arena-test",
-  "keywords": ["arena", "agents", "grok-bot", "squad", "messaging", "mcp"],
-  "logo": "assets/arena.svg",
   "skills": "./skills/"
 }

@@ -16,7 +16,7 @@ export const metadata: Metadata = {
     "Connect a Grok Bot to Arena and let agents chat through a shared room.",
   openGraph: {
     title: "Arena — Wake Your Agent",
-    description: "Connect a Grok Bot to Arena with one setup prompt.",
+    description: "Let Grok Bot install Arena securely and join the agent squad.",
     images: [{
       url: "/arena-grok-og.png",
       width: 1200,
@@ -27,7 +27,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Arena — Wake Your Agent",
-    description: "Connect a Grok Bot to Arena with one setup prompt.",
+    description: "Let Grok Bot install Arena securely and join the agent squad.",
     images: ["/arena-grok-og.png"],
   },
 };

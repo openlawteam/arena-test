@@ -42,7 +42,6 @@ type WakeResult = {
 
 type JsonResponse = {
   error?: string;
-  agentToken?: string;
   claimSecret?: string;
   prompt?: string;
   status?: string;
@@ -79,9 +78,7 @@ export default function Home() {
   const [connection, setConnection] = useState<ConnectionSummary | null>(null);
   const [pairingState, setPairingState] = useState<PairingState>("idle");
   const [copyConfirmed, setCopyConfirmed] = useState(false);
-  const [pluginTokenCopied, setPluginTokenCopied] = useState(false);
   const [claimSecret, setClaimSecret] = useState<string | null>(null);
-  const [agentToken, setAgentToken] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
@@ -216,54 +213,33 @@ export default function Home() {
   }, [copyConfirmed]);
 
   useEffect(() => {
-    if (!pluginTokenCopied) return;
-
-    const timer = window.setTimeout(() => setPluginTokenCopied(false), 3_000);
-    return () => window.clearTimeout(timer);
-  }, [pluginTokenCopied]);
-
-  useEffect(() => {
     if (wakeState !== "done" && wakeState !== "partial") return;
 
     const timer = window.setTimeout(() => setWakeState("idle"), 10_000);
     return () => window.clearTimeout(timer);
   }, [wakeState]);
 
-  async function copySetupPrompt() {
-    if (prompt) {
-      if (await copyToClipboard(prompt)) launchGrokBot();
-      return;
-    }
-
+  async function beginConnection() {
     setPairingState("copying");
 
     try {
       const response = await fetch("/api/pairing", { method: "POST" });
       const body = (await response.json()) as JsonResponse;
-      if (!response.ok || !body.prompt || !body.claimSecret || !body.agentToken) {
+      if (!response.ok || !body.prompt || !body.claimSecret) {
         throw new Error(body.error || "Arena could not create the setup prompt.");
       }
 
       setPrompt(body.prompt);
       setClaimSecret(body.claimSecret);
-      setAgentToken(body.agentToken);
       window.sessionStorage.setItem(PAIRING_STORAGE_KEY, body.claimSecret);
-      if (await copyToClipboard(body.prompt)) launchGrokBot();
+      await copyToClipboard(body.prompt);
     } catch {
       setPairingState("error");
     }
   }
 
-  async function copyPluginToken() {
-    if (!agentToken) return;
-
-    try {
-      await navigator.clipboard.writeText(agentToken);
-      setPluginTokenCopied(true);
-      launchGrokBot();
-    } catch {
-      setPairingState("error");
-    }
+  async function copySetupPrompt() {
+    if (prompt) await copyToClipboard(prompt);
   }
 
   async function copyToClipboard(value: string): Promise<boolean> {
@@ -318,9 +294,11 @@ export default function Home() {
 
   const buttonLabel =
     copyConfirmed
-      ? "PROMPT COPIED · OPENING GROK BOT"
+      ? "PROMPT COPIED"
       : pairingState === "copying"
       ? "PREPARING"
+      : pairingState === "error"
+        ? "TRY AGAIN"
       : connection
         ? "CONNECTED"
         : "CONNECT A GROK BOT";
@@ -357,25 +335,40 @@ export default function Home() {
             >
               <strong>{wakeLabel}</strong>
             </button>
-            {agentToken && (
-              <button
-                className={`pair-button${pluginTokenCopied ? " pair-button--copied" : ""}`}
-                onClick={copyPluginToken}
-                type="button"
-              >
-                <strong>
-                  {pluginTokenCopied
-                    ? "PLUGIN TOKEN COPIED · OPENING GROK BOT"
-                    : "COPY PLUGIN TOKEN"}
-                </strong>
-              </button>
-            )}
           </div>
+        ) : prompt ? (
+          <section className="pair-handoff" aria-live="polite">
+            <strong className="pair-handoff__eyebrow">
+              {copyConfirmed ? "SETUP COPIED" : "READY TO CONNECT"}
+            </strong>
+            <h1>Paste the setup into PizzaFriday</h1>
+            <p>
+              The prompt installs Arena through Grok Bot itself. It contains only a
+              short-lived, one-time pairing code—never the Bot&apos;s lasting credential.
+            </p>
+            <div className="pair-handoff__actions">
+              <button className="pair-button pair-button--copied" onClick={launchGrokBot} type="button">
+                <strong>OPEN GROK BOT · THEN PASTE</strong>
+              </button>
+              <button className="pair-button" onClick={copySetupPrompt} type="button">
+                <strong>{copyConfirmed ? "SETUP COPIED" : "COPY AGAIN"}</strong>
+              </button>
+            </div>
+            <details className="pair-handoff__manual">
+              <summary>View the setup instructions</summary>
+              <textarea
+                aria-label="Grok Bot setup prompt"
+                onFocus={(event) => event.currentTarget.select()}
+                readOnly
+                value={prompt}
+              />
+            </details>
+          </section>
         ) : (
           <button
             className={`pair-button pair-button--${copyConfirmed ? "copied" : pairingState}`}
             disabled={pairingState === "copying"}
-            onClick={copySetupPrompt}
+            onClick={beginConnection}
             type="button"
           >
             <strong>{buttonLabel}</strong>
