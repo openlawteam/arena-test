@@ -11,8 +11,6 @@ import {
 } from "@/lib/grok-connection";
 import { updateConnectedPairing } from "@/lib/pairing-store";
 
-const ACTIVE_AGENT_DAYS = 7;
-const INITIAL_REMAINING_TURNS = 4;
 const MAX_MESSAGE_CHARACTERS = 1_000;
 
 let sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -20,6 +18,7 @@ let sqlClient: NeonQueryFunction<false, false> | null = null;
 type ConnectedPairingRow = {
   token_hash: string;
   encrypted_connection: string;
+  last_seen_at: string | null;
 };
 
 type MessageRow = {
@@ -32,7 +31,6 @@ type MessageRow = {
   recipient_bot_name: string;
   body: string;
   reply_to_id: string | null;
-  remaining_turns: number;
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
@@ -45,7 +43,6 @@ type ParentMessageRow = Pick<
   | "id"
   | "sender_token_hash"
   | "recipient_token_hash"
-  | "remaining_turns"
 >;
 
 export type AuthenticatedAgent = {
@@ -72,6 +69,7 @@ export type PublicMessage = {
 };
 
 export type InboxMessage = PublicMessage & {
+  // Retained in the wire format so already-paired agents remain compatible.
   canReply: boolean;
 };
 
@@ -103,23 +101,26 @@ export async function authenticateAgent(
   const pairingId = hashSecret(match[1]);
   const sql = getSql();
   const rows = (await sql`
-    SELECT token_hash, encrypted_connection
-    FROM arena_pairings
+    UPDATE arena_pairings
+    SET last_seen_at = now()
     WHERE token_hash = ${pairingId}
       AND status = 'connected'
       AND encrypted_connection IS NOT NULL
-      AND connected_at > now() - (${ACTIVE_AGENT_DAYS} * interval '1 day')
-    LIMIT 1
+    RETURNING token_hash, encrypted_connection, last_seen_at
   `) as ConnectedPairingRow[];
   const row = rows[0];
-  const connection = openConnection(row?.encrypted_connection);
+  const connection = openConnection(
+    row?.encrypted_connection,
+    row?.last_seen_at,
+  );
 
   if (!row || !connection) {
     throw new AgentApiError("That Arena agent credential is invalid or expired.", 401);
   }
 
-  connection.lastSeenAt = new Date().toISOString();
-  await updateConnectedPairing(row.token_hash, sealConnection(connection));
+  connection.lastSeenAt = row.last_seen_at
+    ? toIsoString(row.last_seen_at)
+    : new Date().toISOString();
 
   return { pairingId: row.token_hash, connection };
 }
@@ -168,7 +169,7 @@ export async function claimInbox(
 
   return rows.map((row) => ({
     ...toPublicMessage(row),
-    canReply: row.remaining_turns > 0,
+    canReply: true,
   }));
 }
 
@@ -209,9 +210,7 @@ export async function sendAgentMessage(input: {
 }> {
   const messageBody = cleanMessage(input.message);
   const replyTo = cleanReplyId(input.replyTo);
-  const connectedAgents = await listConnectedAgents();
 
-  let remainingTurns = INITIAL_REMAINING_TURNS;
   let recipient: AuthenticatedAgent;
   if (replyTo) {
     const parent = await getParentMessage(replyTo);
@@ -221,20 +220,14 @@ export async function sendAgentMessage(input: {
     if (parent.recipient_token_hash !== input.sender.pairingId) {
       throw new AgentApiError("Only that message's recipient may reply.", 403);
     }
-    const parentSender = connectedAgents.find(
-      (agent) => agent.pairingId === parent.sender_token_hash,
-    );
+    const parentSender = await getConnectedAgent(parent.sender_token_hash);
     if (!parentSender) {
       throw new AgentApiError("The parent sender is no longer connected.", 410);
     }
     recipient = parentSender;
-    if (parent.remaining_turns <= 0) {
-      throw new AgentApiError("This conversation has reached its turn limit.", 409);
-    }
-    remainingTurns = parent.remaining_turns - 1;
   } else {
     recipient = resolveRecipient(
-      connectedAgents,
+      await listConnectedAgents(),
       cleanRecipient(input.to ?? ""),
     );
   }
@@ -256,6 +249,15 @@ export async function sendAgentMessage(input: {
         WHERE arena_agent_send_state.last_sent_at
           <= EXCLUDED.last_sent_at - interval '2 seconds'
         RETURNING sender_token_hash
+      ), parent_read AS (
+        UPDATE arena_messages
+        SET
+          delivered_at = COALESCE(delivered_at, now()),
+          read_at = COALESCE(read_at, now())
+        WHERE id = ${replyTo}
+          AND recipient_token_hash = ${input.sender.pairingId}
+          AND EXISTS (SELECT 1 FROM send_slot)
+        RETURNING id
       )
       INSERT INTO arena_messages (
         id,
@@ -266,8 +268,7 @@ export async function sendAgentMessage(input: {
         recipient_connection_id,
         recipient_bot_name,
         body,
-        reply_to_id,
-        remaining_turns
+        reply_to_id
       )
       SELECT
         ${id},
@@ -278,8 +279,7 @@ export async function sendAgentMessage(input: {
         ${recipient.connection.connectionId},
         ${recipient.connection.botName},
         ${messageBody},
-        ${replyTo},
-        ${remainingTurns}
+        ${replyTo}
       FROM send_slot
       RETURNING *
     `) as MessageRow[];
@@ -391,7 +391,6 @@ export async function updateAgentProfile(input: {
     SET encrypted_connection = ${sealConnection(connection)}
     WHERE token_hash = ${input.agent.pairingId}
       AND status = 'connected'
-      AND connected_at > now() - (${ACTIVE_AGENT_DAYS} * interval '1 day')
     RETURNING token_hash
   `;
   if (rows.length !== 1) {
@@ -412,20 +411,50 @@ export function toPublicAgent(connection: GrokConnection): PublicAgent {
 async function listConnectedAgents(): Promise<AuthenticatedAgent[]> {
   const sql = getSql();
   const rows = (await sql`
-    SELECT token_hash, encrypted_connection
+    SELECT token_hash, encrypted_connection, last_seen_at
     FROM arena_pairings
     WHERE status = 'connected'
       AND encrypted_connection IS NOT NULL
-      AND connected_at > now() - (${ACTIVE_AGENT_DAYS} * interval '1 day')
     ORDER BY connected_at ASC
   `) as ConnectedPairingRow[];
 
   return rows.flatMap((row) => {
-    const connection = openConnection(row.encrypted_connection);
+    const connection = openConnection(
+      row.encrypted_connection,
+      row.last_seen_at,
+    );
+    if (connection && row.last_seen_at) {
+      connection.lastSeenAt = toIsoString(row.last_seen_at);
+    }
     return connection
       ? [{ pairingId: row.token_hash, connection }]
       : [];
   });
+}
+
+async function getConnectedAgent(
+  pairingId: string,
+): Promise<AuthenticatedAgent | null> {
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT token_hash, encrypted_connection, last_seen_at
+    FROM arena_pairings
+    WHERE token_hash = ${pairingId}
+      AND status = 'connected'
+      AND encrypted_connection IS NOT NULL
+    LIMIT 1
+  `) as ConnectedPairingRow[];
+  const row = rows[0];
+  if (!row) return null;
+
+  const connection = openConnection(
+    row.encrypted_connection,
+    row.last_seen_at,
+  );
+  if (connection && row.last_seen_at) {
+    connection.lastSeenAt = toIsoString(row.last_seen_at);
+  }
+  return connection ? { pairingId: row.token_hash, connection } : null;
 }
 
 function resolveRecipient(
@@ -455,7 +484,7 @@ function resolveRecipient(
 async function getParentMessage(id: string): Promise<ParentMessageRow | null> {
   const sql = getSql();
   const rows = (await sql`
-    SELECT id, sender_token_hash, recipient_token_hash, remaining_turns
+    SELECT id, sender_token_hash, recipient_token_hash
     FROM arena_messages
     WHERE id = ${id}
     LIMIT 1

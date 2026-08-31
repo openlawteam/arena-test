@@ -9,7 +9,9 @@ import { promises as dns } from "node:dns";
 import { isIP } from "node:net";
 
 export const GROK_CONNECTION_COOKIE = "arena_grok_connection";
-export const CONNECTION_TTL_SECONDS = 60 * 60 * 24 * 7;
+// Connections stay valid while the agent remains active. This is deliberately a
+// sliding window so a healthy heartbeat does not force a weekly re-pair.
+export const CONNECTION_TTL_SECONDS = 60 * 60 * 24 * 30;
 export const WAKE_COOLDOWN_MS = 10_000;
 export const PRESENCE_TTL_MS = 3 * 60_000;
 
@@ -91,11 +93,13 @@ export function summarizeConnection(
 
 export function connectionStatus(
   connection: GrokConnection,
+  observedLastSeenAt?: string | null,
 ): ConnectionStatus {
   const lastSuccessAt = Math.max(
     Date.parse(connection.connectedAt),
     connection.lastWakeAt ? Date.parse(connection.lastWakeAt) : 0,
     connection.lastSeenAt ? Date.parse(connection.lastSeenAt) : 0,
+    observedLastSeenAt ? Date.parse(observedLastSeenAt) : 0,
   );
   const lastFailureAt = connection.lastWakeFailedAt
     ? Date.parse(connection.lastWakeFailedAt)
@@ -118,7 +122,10 @@ export function sealConnection(connection: GrokConnection): string {
   return ["v1", iv.toString("base64url"), tag.toString("base64url"), encrypted.toString("base64url")].join(".");
 }
 
-export function openConnection(value: string | undefined): GrokConnection | null {
+export function openConnection(
+  value: string | undefined,
+  observedLastSeenAt?: string | null,
+): GrokConnection | null {
   if (!value) return null;
 
   try {
@@ -158,7 +165,13 @@ export function openConnection(value: string | undefined): GrokConnection | null
       return null;
     }
 
-    const age = Date.now() - Date.parse(parsed.connectedAt);
+    const lastActivityAt = Math.max(
+      Date.parse(parsed.connectedAt),
+      parsed.lastWakeAt ? Date.parse(parsed.lastWakeAt) : 0,
+      parsed.lastSeenAt ? Date.parse(parsed.lastSeenAt) : 0,
+      observedLastSeenAt ? Date.parse(observedLastSeenAt) : 0,
+    );
+    const age = Date.now() - lastActivityAt;
     if (!Number.isFinite(age) || age > CONNECTION_TTL_SECONDS * 1000) {
       return null;
     }

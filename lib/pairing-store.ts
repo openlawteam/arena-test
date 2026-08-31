@@ -15,6 +15,7 @@ type PairingRow = {
 type ConnectedPairingRow = {
   token_hash: string;
   encrypted_connection: string;
+  last_seen_at: string | null;
 };
 
 let sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -33,6 +34,7 @@ export type PairingClaim =
 export type StoredConnection = {
   pairingId: string;
   encryptedConnection: string;
+  lastSeenAt: string | null;
 };
 
 export async function createPairing(): Promise<NewPairing> {
@@ -71,7 +73,8 @@ export async function completePairing(
     SET
       status = 'connected',
       encrypted_connection = ${encryptedConnection},
-      connected_at = now()
+      connected_at = now(),
+      last_seen_at = now()
     WHERE token_hash = ${pairingId}
       AND status = 'waiting'
       AND expires_at > now()
@@ -83,7 +86,7 @@ export async function completePairing(
   const newConnection = openConnection(encryptedConnection);
   if (newConnection) {
     const existingRows = (await sql`
-      SELECT token_hash, encrypted_connection
+      SELECT token_hash, encrypted_connection, last_seen_at
       FROM arena_pairings
       WHERE token_hash <> ${pairingId}
         AND status = 'connected'
@@ -93,6 +96,7 @@ export async function completePairing(
     for (const existingRow of existingRows) {
       const existingConnection = openConnection(
         existingRow.encrypted_connection,
+        existingRow.last_seen_at,
       );
       if (existingConnection?.webhookUrl !== newConnection.webhookUrl) continue;
 
@@ -140,11 +144,10 @@ export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
 export async function listConnectedPairings(): Promise<StoredConnection[]> {
   const sql = getSql();
   const rows = (await sql`
-    SELECT token_hash, encrypted_connection
+    SELECT token_hash, encrypted_connection, last_seen_at
     FROM arena_pairings
     WHERE status = 'connected'
       AND encrypted_connection IS NOT NULL
-      AND connected_at > now() - interval '7 days'
     ORDER BY connected_at ASC
     LIMIT 20
   `) as ConnectedPairingRow[];
@@ -152,6 +155,7 @@ export async function listConnectedPairings(): Promise<StoredConnection[]> {
   return rows.map((row) => ({
     pairingId: row.token_hash,
     encryptedConnection: row.encrypted_connection,
+    lastSeenAt: row.last_seen_at,
   }));
 }
 

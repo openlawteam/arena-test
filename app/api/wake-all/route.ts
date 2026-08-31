@@ -64,7 +64,10 @@ export async function POST(request: Request) {
 
     const storedConnections = await listConnectedPairings();
     const activeConnections = storedConnections.flatMap((stored) => {
-      const connection = openConnection(stored.encryptedConnection);
+      const connection = openConnection(
+        stored.encryptedConnection,
+        stored.lastSeenAt,
+      );
       return connection ? [{ stored, connection }] : [];
     });
 

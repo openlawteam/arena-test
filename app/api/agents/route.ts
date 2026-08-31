@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const pairings = await listConnectedPairings();
-    const agents = pairings.flatMap(({ encryptedConnection }) => {
-      const connection = openConnection(encryptedConnection);
+    const agents = pairings.flatMap(({ encryptedConnection, lastSeenAt }) => {
+      const connection = openConnection(encryptedConnection, lastSeenAt);
       if (!connection) return [];
 
       return [{
@@ -19,7 +19,7 @@ export async function GET() {
         avatarUrl: connection.avatarUrl ?? null,
         connectedAt: connection.connectedAt,
         lastWakeAt: connection.lastWakeAt ?? null,
-        status: connectionStatus(connection),
+        status: connectionStatus(connection, lastSeenAt),
       }];
     });
 

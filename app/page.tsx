@@ -133,7 +133,7 @@ export default function Home() {
     }
 
     void loadMessages();
-    const timer = window.setInterval(loadMessages, 2_500);
+    const timer = window.setInterval(loadMessages, 1_000);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
@@ -172,7 +172,7 @@ export default function Home() {
         // A missed poll is expected on spotty connections; the next one retries.
       }
 
-      if (!cancelled) timer = setTimeout(checkPairing, 2_500);
+      if (!cancelled) timer = setTimeout(checkPairing, 1_000);
     }
 
     void checkPairing();
