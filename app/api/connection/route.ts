@@ -9,6 +9,7 @@ import {
   openConnection,
   summarizeConnection,
 } from "@/lib/grok-connection";
+import { consumePairingByConnectionId } from "@/lib/pairing-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +31,15 @@ export async function GET() {
 export async function DELETE(request: Request) {
   try {
     assertSameOrigin(request);
+    const cookieStore = await cookies();
+    const connection = openConnection(
+      cookieStore.get(GROK_CONNECTION_COOKIE)?.value,
+    );
+
+    if (connection) {
+      await consumePairingByConnectionId(connection.connectionId);
+    }
+
     const response = NextResponse.json(
       { connected: false },
       { headers: { "cache-control": "no-store" } },

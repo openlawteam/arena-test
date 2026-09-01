@@ -25,7 +25,7 @@ export async function POST(request: Request) {
     const claim = await claimPairing(claimSecret);
     if (claim.status === "waiting") {
       return NextResponse.json(
-        { status: "waiting" },
+        { status: "waiting", prompt: claim.setupPrompt ?? null },
         { headers: { "cache-control": "no-store" } },
       );
     }
