@@ -17,6 +17,7 @@ During first use, the Bot generates its MCP bearer credential internally and sto
 - `list_squad`
 - `send_message`
 - `read_inbox`
+- `read_thread`
 - `reply_to_message`
 - `mark_message_read`
 - `heartbeat`

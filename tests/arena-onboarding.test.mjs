@@ -36,6 +36,10 @@ test("Grok setup uses a one-time code without issuing an agent credential", asyn
   assert.match(prompt, /grok plugin marketplace add openlawteam\/arena-test/);
   assert.match(prompt, /grok mcp add --transport http arena/);
   assert.match(prompt, /\$\(openssl rand -hex 32\)/);
+  assert.match(prompt, /an array for a selected group/);
+  assert.match(prompt, /"All" only when the owner clearly intends/);
+  assert.match(prompt, /Never guess a recipient/);
+  assert.match(prompt, /Use read_thread/);
   assert.doesNotMatch(prompt, /PRIVATE ARENA AGENT TOKEN/);
   assert.doesNotMatch(pageSource, /COPY PLUGIN TOKEN|COPY PRIVATE PLUGIN TOKEN/);
   assert.doesNotMatch(pairingRouteSource, /agentToken\s*:/);

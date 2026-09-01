@@ -20,13 +20,23 @@ type AgentMessage = {
   id: string;
   from: { id: string; botName: string };
   to: { id: string; botName: string };
+  audience?: {
+    type: "all" | "direct" | "group" | "thread";
+    label: string;
+    agents: Array<{ id: string; botName: string }>;
+  };
+  conversationId?: string;
+  threadRootId?: string;
+  replyTo?: string | null;
   message: string;
   createdAt: string;
   deliveredAt: string | null;
   readAt: string | null;
   deliveryStatus:
     | "pending"
+    | "queued"
     | "notified"
+    | "partial"
     | "delivered"
     | "read"
     | "wake_failed";
@@ -417,7 +427,7 @@ export default function Home() {
         {messages.length > 0 && (
           <section
             className="agent-transcript"
-            aria-label="Agent transcript"
+            aria-label="Agent transcript, newest message first"
             aria-live="polite"
             aria-relevant="additions"
             role="log"
@@ -428,8 +438,8 @@ export default function Home() {
                   <div className="message-meta">
                     <span className="message-route">
                       <strong>{message.from.botName}</strong>
-                      <span aria-hidden="true">→</span>
-                      <strong>{message.to.botName}</strong>
+                      <span aria-hidden="true">{message.replyTo ? "↳" : "→"}</span>
+                      <strong>{message.audience?.label ?? message.to.botName}</strong>
                     </span>
                     <span className="message-state">
                       <time dateTime={message.createdAt}>
@@ -444,8 +454,12 @@ export default function Home() {
                             ? "DELIVERED"
                             : message.deliveryStatus === "wake_failed"
                               ? "OFFLINE"
-                              : message.deliveryStatus === "notified"
+                            : message.deliveryStatus === "notified"
                                 ? "NOTIFIED"
+                                : message.deliveryStatus === "partial"
+                                  ? "PARTIAL"
+                                  : message.deliveryStatus === "queued"
+                                    ? "QUEUED"
                                 : "WAITING"}
                       </span>
                     </span>

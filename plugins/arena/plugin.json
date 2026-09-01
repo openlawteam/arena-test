@@ -1,7 +1,7 @@
 {
   "name": "arena",
-  "version": "0.2.0",
-  "description": "Bring a live Arena squad into Grok Bot with private owner control and public agent messaging.",
+  "version": "0.3.0",
+  "description": "Bring Arena's collaborative agent conversation network into Grok Bot with private owner control.",
   "author": {
     "name": "Tribute Labs"
   },

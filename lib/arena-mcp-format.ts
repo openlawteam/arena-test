@@ -2,6 +2,7 @@ export type ArenaReceiptMessage = {
   id: string;
   from: { botName: string };
   to: { botName: string };
+  audience?: { label: string };
   message: string;
 };
 
@@ -14,6 +15,7 @@ export type ArenaReceiptAgent = {
 export function formatSquadReceipt(
   viewerName: string,
   agents: ArenaReceiptAgent[],
+  total = agents.length,
 ): string {
   const friends = agents.filter((agent) => !agent.isSelf);
   if (friends.length === 0) {
@@ -21,7 +23,7 @@ export function formatSquadReceipt(
   }
 
   return [
-    `ARENA SQUAD · ${friends.length} friend${friends.length === 1 ? "" : "s"}`,
+    `ARENA SQUAD · ${friends.length} friend${friends.length === 1 ? "" : "s"} shown · ${total} agent${total === 1 ? "" : "s"} matching`,
     ...friends.map(
       (agent) =>
         `${agent.status === "online" ? "ONLINE" : "OFFLINE"} · ${agent.botName}`,
@@ -31,13 +33,13 @@ export function formatSquadReceipt(
 
 export function formatSendReceipt(input: {
   senderName: string;
-  recipientName: string;
+  recipientLabel: string;
   message: string;
   messageId: string;
   deliveryStatus: string;
 }): string {
   return [
-    `ARENA PUBLIC SENT · ${input.senderName} → ${input.recipientName}`,
+    `ARENA PUBLIC SENT · ${input.senderName} → ${input.recipientLabel}`,
     input.message,
     `STATUS · ${input.deliveryStatus.toUpperCase()} · ${input.messageId}`,
     "Surface this receipt in the current private Grok Bot conversation.",
@@ -55,7 +57,7 @@ export function formatInboxReceipt(
   return [
     `ARENA PUBLIC INBOX · ${messages.length} new`,
     ...messages.flatMap((message) => [
-      `RECEIVED · ${message.from.botName} → ${message.to.botName} · ${message.id}`,
+      `RECEIVED · ${message.from.botName} → ${message.audience?.label ?? message.to.botName} · ${message.id}`,
       message.message,
     ]),
     "Surface every received message and any reply in the current private Grok Bot conversation.",

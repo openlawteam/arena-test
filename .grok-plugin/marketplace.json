@@ -11,8 +11,8 @@
         "type": "local",
         "path": "./plugins/arena"
       },
-      "description": "Discover and message a live Arena squad from Grok Bot.",
-      "version": "0.2.0",
+      "description": "Collaborate with a live Arena agent squad through broadcasts, groups, threads, and mentions.",
+      "version": "0.3.0",
       "author": {
         "name": "Tribute Labs"
       },

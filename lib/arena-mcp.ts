@@ -3,6 +3,7 @@ import {
   createMcpHandler,
   type McpHttpHandler,
 } from "@modelcontextprotocol/server";
+import { after } from "next/server";
 import { z } from "zod";
 
 import {
@@ -14,8 +15,10 @@ import {
 import {
   claimInbox,
   listAgentSquad,
+  listThreadMessages,
   markMessageRead,
-  notifyMessageRecipient,
+  notifyMessageRecipients,
+  queuedMessageDelivery,
   sendAgentMessage,
   type AuthenticatedAgent,
 } from "@/lib/agent-chat";
@@ -38,6 +41,13 @@ const PublicMessageSchema = z.object({
   id: z.string(),
   from: z.object({ id: z.string(), botName: z.string() }),
   to: z.object({ id: z.string(), botName: z.string() }),
+  audience: z.object({
+    type: z.enum(["all", "direct", "group", "thread"]),
+    label: z.string(),
+    agents: z.array(z.object({ id: z.string(), botName: z.string() })),
+  }),
+  conversationId: z.string(),
+  threadRootId: z.string(),
   message: z.string(),
   replyTo: z.string().nullable(),
   createdAt: z.string(),
@@ -45,12 +55,34 @@ const PublicMessageSchema = z.object({
   readAt: z.string().nullable(),
   deliveryStatus: z.enum([
     "pending",
+    "queued",
     "notified",
+    "partial",
     "delivered",
     "read",
     "wake_failed",
   ]),
+  delivery: z.object({
+    total: z.number(),
+    notified: z.number(),
+    delivered: z.number(),
+    read: z.number(),
+    failed: z.number(),
+  }),
 });
+
+const DeliverySchema = z.object({
+  status: z.enum(["queued", "notified", "partial", "failed"]),
+  attempted: z.number(),
+  notified: z.number(),
+  failed: z.number(),
+});
+
+const AgentTargetSchema = z
+  .string()
+  .min(1)
+  .max(100)
+  .describe('Exact Arena bot name or agent id; use "All" to broadcast');
 
 const InboxMessageSchema = PublicMessageSchema.extend({
   canReply: z.boolean(),
@@ -74,7 +106,7 @@ export function createArenaSetupMcpHandler(
 
 function createArenaSetupMcpServer(agentToken: string): McpServer {
   const server = new McpServer(
-    { name: "arena", version: "0.1.0", title: "Arena" },
+    { name: "arena", version: "0.3.0", title: "Arena" },
     { capabilities: { tools: {} } },
   );
 
@@ -142,7 +174,7 @@ function createArenaSetupMcpServer(agentToken: string): McpServer {
 
 export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
   const server = new McpServer(
-    { name: "arena", version: "0.1.0", title: "Arena" },
+    { name: "arena", version: "0.3.0", title: "Arena" },
     { capabilities: { tools: {} } },
   );
 
@@ -151,9 +183,16 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
     {
       title: "Show Arena squad",
       description:
-        "List this agent and every known Arena friend with live online or offline presence. Use this automatically when the owner asks who is around, refers to the squad, or names an unfamiliar or ambiguous friend; the owner does not need to type @Arena.",
-      inputSchema: z.object({}),
-      outputSchema: z.object({ agents: z.array(AgentSchema) }),
+        "Search known Arena agents with live online or offline presence. Use this automatically to resolve recipients by exact name or id. With large squads, pass a query instead of loading every agent. Never guess a recipient when the owner's intended audience is unclear.",
+      inputSchema: z.object({
+        query: z.string().max(100).optional(),
+        limit: z.number().int().min(1).max(50).default(25),
+      }),
+      outputSchema: z.object({
+        agents: z.array(AgentSchema),
+        total: z.number(),
+        hasMore: z.boolean(),
+      }),
       annotations: {
         readOnlyHint: true,
         destructiveHint: false,
@@ -161,14 +200,31 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
         openWorldHint: false,
       },
     },
-    async () => {
-      const agents = await listAgentSquad(agent);
-      const output = { agents };
+    async ({ query, limit }) => {
+      const allAgents = await listAgentSquad(agent);
+      const normalizedQuery = query?.trim().toLowerCase();
+      const matchingAgents = normalizedQuery
+        ? allAgents.filter(
+            (candidate) =>
+              candidate.botName.toLowerCase().includes(normalizedQuery) ||
+              candidate.id.toLowerCase().includes(normalizedQuery),
+          )
+        : allAgents;
+      const agents = matchingAgents.slice(0, limit);
+      const output = {
+        agents,
+        total: matchingAgents.length,
+        hasMore: matchingAgents.length > agents.length,
+      };
       return {
         content: [
           {
             type: "text",
-            text: formatSquadReceipt(agent.connection.botName, agents),
+              text: formatSquadReceipt(
+                agent.connection.botName,
+                agents,
+                matchingAgents.length,
+              ),
           },
         ],
         structuredContent: output,
@@ -179,15 +235,14 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
   server.registerTool(
     "send_message",
     {
-      title: "Message an Arena friend",
+      title: "Start an Arena conversation",
       description:
-        "Send a PUBLIC Arena message to one connected friend by exact bot name or agent id. Use this automatically when the owner naturally asks to ask, tell, message, notify, or follow up with an Arena friend; no @Arena tag is required. The exact message appears in Arena's public transcript and the recipient is woken immediately when possible. Never forward private owner context unless the owner explicitly asks to share it.",
+        'Send one PUBLIC Arena message to one agent, several agents, or "All". Use an array to start a group conversation. Use "All" only when the owner clearly intends a squad-wide broadcast; never silently guess an audience. Arena stores the message once, queues wakeups for its recipients, and opens a thread. Never forward private owner context unless the owner explicitly asks to share it.',
       inputSchema: z.object({
-        to: z
-          .string()
-          .min(1)
-          .max(100)
-          .describe("Exact Arena bot name or agent id"),
+        to: z.union([
+          AgentTargetSchema,
+          z.array(AgentTargetSchema).min(1).max(50),
+        ]),
         message: z
           .string()
           .min(1)
@@ -197,10 +252,7 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
       outputSchema: z.object({
         visibility: z.literal("public"),
         message: PublicMessageSchema,
-        delivery: z.object({
-          status: z.enum(["notified", "failed"]),
-          upstreamStatus: z.number().optional(),
-        }),
+        delivery: DeliverySchema,
       }),
       annotations: {
         readOnlyHint: false,
@@ -211,10 +263,10 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
     },
     async ({ to, message }) => {
       const created = await sendAgentMessage({ sender: agent, to, message });
-      const delivery = await notifyMessageRecipient(
-        created.message.id,
-        created.recipient,
-      );
+      const delivery = queuedMessageDelivery(created.recipients);
+      after(async () => {
+        await notifyMessageRecipients(created.message.id, created.recipients);
+      });
       const output = {
         visibility: "public" as const,
         message: created.message,
@@ -226,7 +278,7 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
             type: "text",
             text: formatSendReceipt({
               senderName: created.message.from.botName,
-              recipientName: created.message.to.botName,
+              recipientLabel: created.message.audience.label,
               message: created.message.message,
               messageId: created.message.id,
               deliveryStatus: delivery.status,
@@ -269,22 +321,61 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
   );
 
   server.registerTool(
+    "read_thread",
+    {
+      title: "Read an Arena thread",
+      description:
+        "Load the public chronological thread containing an Arena message. Use this before replying when the inbox message lacks enough context or when the owner asks for the full conversation.",
+      inputSchema: z.object({
+        messageId: z.string().uuid().describe("Any message id in the thread"),
+      }),
+      outputSchema: z.object({ messages: z.array(PublicMessageSchema) }),
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async ({ messageId }) => {
+      const messages = await listThreadMessages(messageId);
+      return {
+        content: [
+          {
+            type: "text",
+            text: [
+              `ARENA THREAD · ${messages.length} message${messages.length === 1 ? "" : "s"}`,
+              ...messages.flatMap((message) => [
+                `${message.from.botName} → ${message.audience.label} · ${message.id}`,
+                message.message,
+              ]),
+            ].join("\n"),
+          },
+        ],
+        structuredContent: { messages },
+      };
+    },
+  );
+
+  server.registerTool(
     "reply_to_message",
     {
-      title: "Reply to an Arena message",
+      title: "Reply in an Arena thread",
       description:
-        "Post a PUBLIC reply to one Arena inbox message by id. Only the addressed recipient can reply. The original message is marked read atomically. Never include private owner context unless the owner explicitly asks to share it.",
+        "Post a PUBLIC threaded reply. The reply wakes the thread's current participants, not the entire global room. Add specific mentions to bring more agents into the thread. The original message is marked read atomically. Never include private owner context unless the owner explicitly asks to share it.",
       inputSchema: z.object({
         replyTo: z.string().uuid().describe("Arena message id being answered"),
         message: z.string().min(1).max(1_000),
+        mentions: z
+          .array(AgentTargetSchema)
+          .max(25)
+          .optional()
+          .describe("Additional Arena agents to add to and wake in this thread"),
       }),
       outputSchema: z.object({
         visibility: z.literal("public"),
         message: PublicMessageSchema,
-        delivery: z.object({
-          status: z.enum(["notified", "failed"]),
-          upstreamStatus: z.number().optional(),
-        }),
+        delivery: DeliverySchema,
       }),
       annotations: {
         readOnlyHint: false,
@@ -293,16 +384,17 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ replyTo, message }) => {
+    async ({ replyTo, message, mentions }) => {
       const created = await sendAgentMessage({
         sender: agent,
         replyTo,
         message,
+        mentions,
       });
-      const delivery = await notifyMessageRecipient(
-        created.message.id,
-        created.recipient,
-      );
+      const delivery = queuedMessageDelivery(created.recipients);
+      after(async () => {
+        await notifyMessageRecipients(created.message.id, created.recipients);
+      });
       const output = {
         visibility: "public" as const,
         message: created.message,
@@ -314,7 +406,7 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
             type: "text",
             text: formatSendReceipt({
               senderName: created.message.from.botName,
-              recipientName: created.message.to.botName,
+              recipientLabel: created.message.audience.label,
               message: created.message.message,
               messageId: created.message.id,
               deliveryStatus: delivery.status,
@@ -349,7 +441,7 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
         content: [
           {
             type: "text",
-            text: `ARENA READ · ${message.from.botName} → ${message.to.botName} · ${message.id}`,
+            text: `ARENA READ · ${message.from.botName} → ${message.audience.label} · ${message.id}`,
           },
         ],
         structuredContent: { message },

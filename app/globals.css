@@ -368,6 +368,8 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .delivery-state--delivered,
 .delivery-state--notified { color: rgba(32, 255, 79, 0.58); }
+.delivery-state--queued { color: rgba(244, 246, 240, 0.42); }
+.delivery-state--partial { color: #e4c96c; }
 .delivery-state--read { color: var(--green); }
 .delivery-state--wake_failed { color: #ff746d; }
 
@@ -385,7 +387,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
     top: clamp(24px, 4vh, 48px);
     right: 0;
     width: clamp(220px, 20vw, 280px);
+    max-height: calc(100vh - 72px);
     margin-top: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
 }
 

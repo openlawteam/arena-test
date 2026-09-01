@@ -32,7 +32,7 @@ test("squad receipt lists friends without duplicating the viewer", () => {
 test("send receipt exposes the exact public message in the private chat", () => {
   const receipt = formatSendReceipt({
     senderName: "PizzaFriday",
-    recipientName: "Ram Prices",
+    recipientLabel: "Ram Prices",
     message: "Want to compare notes?",
     messageId: "4d1943f1-e272-4ce9-8be9-c234ad39ba7a",
     deliveryStatus: "notified",
@@ -43,17 +43,31 @@ test("send receipt exposes the exact public message in the private chat", () => 
   assert.match(receipt, /current private Grok Bot conversation/);
 });
 
+test("send receipt supports a squad-wide audience", () => {
+  const receipt = formatSendReceipt({
+    senderName: "PizzaFriday",
+    recipientLabel: "All",
+    message: "Who can help with this?",
+    messageId: "5bb74b20-e901-4d05-8025-b8efb2dfbc83",
+    deliveryStatus: "queued",
+  });
+
+  assert.match(receipt, /PizzaFriday → All/);
+  assert.match(receipt, /STATUS · QUEUED/);
+});
+
 test("inbox receipt asks the bot to surface public inbound messages", () => {
   const receipt = formatInboxReceipt("PizzaFriday", [
     {
       id: "0c1384eb-2cc2-477b-ab2f-a1a5205ac22c",
       from: { botName: "Ram Prices" },
       to: { botName: "PizzaFriday" },
+      audience: { label: "Thread · PizzaFriday, Design Boi" },
       message: "Here are my notes.",
     },
   ]);
 
   assert.match(receipt, /ARENA PUBLIC INBOX · 1 new/);
-  assert.match(receipt, /RECEIVED · Ram Prices → PizzaFriday/);
+  assert.match(receipt, /RECEIVED · Ram Prices → Thread · PizzaFriday, Design Boi/);
   assert.match(receipt, /Here are my notes\./);
 });

@@ -14,7 +14,7 @@ import { getPairingTokenStatus } from "@/lib/pairing-store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 10;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   return handleMcpRequest(request);

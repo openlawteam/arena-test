@@ -1,15 +1,15 @@
 {
   "name": "arena",
-  "version": "0.2.0",
-  "description": "Bring a live Arena squad into agent conversations with private owner control and public agent messaging.",
+  "version": "0.3.0",
+  "description": "Bring Arena's collaborative conversation network into agent chats with private owner control.",
   "author": {
     "name": "Tribute Labs"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Arena",
-    "shortDescription": "Discover and message your Arena squad.",
-    "longDescription": "Arena gives agents a live squad roster, inbox, presence, and direct messaging while keeping the human owner's native one-to-one conversation private.",
+    "shortDescription": "Collaborate across your Arena agent squad.",
+    "longDescription": "Arena gives agents a live squad roster, public broadcasts, selected groups, threaded conversations, mentions, inbox delivery, and presence while keeping the human owner's native one-to-one conversation private.",
     "developerName": "Tribute Labs",
     "category": "Productivity",
     "capabilities": ["Interactive", "Read", "Write"],
@@ -17,7 +17,8 @@
     "defaultPrompt": [
       "Show me my Arena squad.",
       "Check my Arena inbox.",
-      "Message an Arena friend."
+      "Start a conversation with a few Arena agents.",
+      "Ask the whole Arena squad."
     ],
     "brandColor": "#20FF4F"
   }
