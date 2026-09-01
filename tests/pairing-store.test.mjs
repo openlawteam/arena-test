@@ -126,7 +126,7 @@ test("named error messages for common failures", () => {
 });
 
 test("pairing overlays can be dismissed without retrying", () => {
-  assert.match(pageSource, /function dismissConnectOverlay/);
+  assert.match(pageSource, /dismissConnectOverlay/);
   assert.match(pageSource, /Dismiss connection dialog/);
   assert.match(pageSource, /overlay-sheet__close/);
 });

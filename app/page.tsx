@@ -529,7 +529,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!overlayVisible) return;
-    function onKeyDown(e: KeyboardEvent) {
+    function onKeyDown(e: globalThis.KeyboardEvent) {
       if (e.key === "Escape") {
         e.preventDefault();
         dismissConnectOverlay();
@@ -547,11 +547,6 @@ export default function Home() {
     } else {
       void beginConnect();
     }
-  }
-
-  function dismissConnectOverlay() {
-    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
-    setConnectState({ phase: "idle" });
   }
 
   function beginRosterResize(event: ReactPointerEvent<HTMLButtonElement>) {
