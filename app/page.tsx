@@ -1,11 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConnectionSummary } from "@/lib/grok-connection";
-
-type PairingState = "idle" | "copying" | "waiting" | "connected" | "error";
-type WakeState = "idle" | "waking" | "done" | "partial" | "error";
 
 type AgentSummary = {
   id: string;
@@ -42,14 +39,6 @@ type AgentMessage = {
     | "wake_failed";
 };
 
-type WakeResult = {
-  agentId: string;
-  botName: string;
-  status: "notified" | "cooldown" | "failed";
-  upstreamStatus?: number;
-  latencyMs: number;
-};
-
 type JsonResponse = {
   error?: string;
   claimSecret?: string;
@@ -59,19 +48,24 @@ type JsonResponse = {
   connection?: ConnectionSummary | null;
   agents?: AgentSummary[];
   messages?: AgentMessage[];
-  attempted?: number;
-  delivered?: number;
-  results?: WakeResult[];
+  message?: AgentMessage;
+  delivery?: { status: string };
 };
+
+type ConnectState =
+  | { phase: "idle" }
+  | { phase: "connecting" }
+  | { phase: "waiting"; claimSecret: string }
+  | { phase: "error"; message: string; claimSecret?: string };
+
+type FlyoutTarget = AgentSummary & { isOwner: boolean };
 
 const PAIRING_STORAGE_KEY = "arena_pairing_claim";
 const GROK_BOT_DEEP_LINK = "grokbot://";
 const GROK_BOT_FALLBACK_URL = "https://docs.x.ai/grok-bot/get-started";
-
 function formatMessageTime(value: string, now: number) {
   const date = new Date(value);
   const timestamp = date.getTime();
-
   if (!Number.isFinite(timestamp)) return "";
 
   const age = Math.max(0, now - timestamp);
@@ -84,393 +78,498 @@ function formatMessageTime(value: string, now: number) {
   }).format(date);
 }
 
+function leaseLabel(agent: AgentSummary): string {
+  if (agent.status === "online") return "Online";
+  const lastActive = Math.max(
+    Date.parse(agent.connectedAt),
+    agent.lastWakeAt ? Date.parse(agent.lastWakeAt) : 0,
+  );
+  if (!Number.isFinite(lastActive)) return "Offline";
+  const ago = Date.now() - lastActive;
+  if (ago < 60_000) return "Seen just now";
+  if (ago < 3_600_000) return `Seen ${Math.floor(ago / 60_000)}m ago`;
+  if (ago < 86_400_000) return `Seen ${Math.floor(ago / 3_600_000)}h ago`;
+  return "Offline";
+}
+
+function avatarLetters(name: string): string {
+  return name
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part.slice(0, 1).toUpperCase())
+    .join("");
+}
+
 export default function Home() {
   const [connection, setConnection] = useState<ConnectionSummary | null>(null);
-  const [pairingState, setPairingState] = useState<PairingState>("idle");
-  const [copyConfirmed, setCopyConfirmed] = useState(false);
-  const [claimSecret, setClaimSecret] = useState<string | null>(null);
-  const [prompt, setPrompt] = useState<string | null>(null);
+  const [connectState, setConnectState] = useState<ConnectState>({ phase: "idle" });
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [messageClock, setMessageClock] = useState(0);
-  const [wakeState, setWakeState] = useState<WakeState>("idle");
-  const [wakeResults, setWakeResults] = useState<Record<string, WakeResult>>({});
-  const [wakeCount, setWakeCount] = useState({ delivered: 0, attempted: 0 });
+  const [flyout, setFlyout] = useState<FlyoutTarget | null>(null);
+  const [interjectText, setInterjectText] = useState("");
+  const [interjectBusy, setInterjectBusy] = useState(false);
+  const [removing, setRemoving] = useState(false);
 
+  const connectStateRef = useRef(connectState);
+  connectStateRef.current = connectState;
+
+  // ── Restore session on mount ────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
-    async function restoreSession() {
+    async function restore() {
       try {
-        const response = await fetch("/api/connection", { cache: "no-store" });
-        const body = (await response.json()) as JsonResponse;
+        const res = await fetch("/api/connection", { cache: "no-store" });
+        const body = (await res.json()) as JsonResponse;
         if (!cancelled && body.connected && body.connection) {
           setConnection(body.connection);
-          setPairingState("connected");
           return;
         }
-
-        const savedClaim = window.sessionStorage.getItem(PAIRING_STORAGE_KEY);
-        if (!cancelled && savedClaim) {
-          setClaimSecret(savedClaim);
-          setPairingState("waiting");
-        }
       } catch {
-        if (!cancelled) {
-          setPairingState("error");
-        }
+        // Connection check failure is not fatal — spectate mode still works.
+      }
+
+      const saved = window.sessionStorage.getItem(PAIRING_STORAGE_KEY);
+      if (!cancelled && saved) {
+        setConnectState({ phase: "waiting", claimSecret: saved });
       }
     }
 
-    void restoreSession();
-    return () => {
-      cancelled = true;
-    };
+    void restore();
+    return () => { cancelled = true; };
   }, []);
 
+  // ── Poll agents ─────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
 
-    async function loadMessages() {
+    async function load() {
       try {
-        const response = await fetch("/api/messages", { cache: "no-store" });
-        const body = (await response.json()) as JsonResponse;
-        if (!cancelled && response.ok && body.messages) {
+        const res = await fetch("/api/agents", { cache: "no-store" });
+        const body = (await res.json()) as JsonResponse;
+        if (!cancelled && res.ok && body.agents) setAgents(body.agents);
+      } catch { /* next poll retries */ }
+    }
+
+    void load();
+    const timer = window.setInterval(load, 5_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
+  }, []);
+
+  // ── Poll messages ───────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const res = await fetch("/api/messages", { cache: "no-store" });
+        const body = (await res.json()) as JsonResponse;
+        if (!cancelled && res.ok && body.messages) {
           setMessages(body.messages);
           setMessageClock(Date.now());
         }
-      } catch {
-        // The next poll retries without interrupting the live transcript.
-      }
+      } catch { /* next poll retries */ }
     }
 
-    void loadMessages();
-    const timer = window.setInterval(loadMessages, 1_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+    void load();
+    const timer = window.setInterval(load, 1_000);
+    return () => { cancelled = true; window.clearInterval(timer); };
   }, []);
 
+  // ── Poll pairing status when waiting ────────────────────────────────
   useEffect(() => {
-    if (!claimSecret || connection) return;
+    if (connectState.phase !== "waiting" || connection) return;
+    const { claimSecret } = connectState;
 
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function checkPairing() {
+    async function poll() {
       try {
-        const response = await fetch("/api/pairing/status", {
+        const res = await fetch("/api/pairing/status", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ claimSecret }),
         });
-        const body = (await response.json()) as JsonResponse;
-
+        const body = (await res.json()) as JsonResponse;
         if (cancelled) return;
-        if (response.ok && body.status === "connected" && body.connection) {
+
+        if (res.ok && body.status === "connected" && body.connection) {
           setConnection(body.connection);
-          setPairingState("connected");
+          setConnectState({ phase: "idle" });
           window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
           return;
         }
-        if (response.status === 410) {
-          setClaimSecret(null);
-          setPairingState("error");
+        if (res.status === 410) {
+          setConnectState({ phase: "error", message: "Connect expired." });
           window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
           return;
         }
-      } catch {
-        // A missed poll is expected on spotty connections; the next one retries.
-      }
+      } catch { /* missed poll, retry */ }
 
-      if (!cancelled) timer = setTimeout(checkPairing, 1_000);
+      if (!cancelled) timer = setTimeout(poll, 1_000);
     }
 
-    void checkPairing();
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-  }, [claimSecret, connection]);
+    void poll();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, [connectState, connection]);
 
-  useEffect(() => {
-    let cancelled = false;
+  // ── Connect flow ────────────────────────────────────────────────────
+  const beginConnect = useCallback(async () => {
+    setConnectState({ phase: "connecting" });
 
-    async function loadAgents() {
-      try {
-        const response = await fetch("/api/agents", { cache: "no-store" });
-        const body = (await response.json()) as JsonResponse;
-        if (!cancelled && response.ok && body.agents) setAgents(body.agents);
-      } catch {
-        // The next refresh retries if the roster request is interrupted.
+    try {
+      const res = await fetch("/api/pairing", { method: "POST" });
+      const body = (await res.json()) as JsonResponse;
+
+      if (!res.ok || !body.claimSecret) {
+        setConnectState({
+          phase: "error",
+          message: body.error || "Arena could not start the connection.",
+        });
+        return;
       }
-    }
 
-    void loadAgents();
-    const timer = window.setInterval(loadAgents, 5_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+      window.sessionStorage.setItem(PAIRING_STORAGE_KEY, body.claimSecret);
+      setConnectState({ phase: "waiting", claimSecret: body.claimSecret });
+      openGrokBot();
+    } catch {
+      setConnectState({
+        phase: "error",
+        message: "Arena could not start the connection.",
+      });
+    }
   }, []);
 
-  useEffect(() => {
-    if (!copyConfirmed) return;
-
-    const timer = window.setTimeout(() => setCopyConfirmed(false), 2_000);
-    return () => window.clearTimeout(timer);
-  }, [copyConfirmed]);
-
-  useEffect(() => {
-    if (wakeState !== "done" && wakeState !== "partial") return;
-
-    const timer = window.setTimeout(() => setWakeState("idle"), 10_000);
-    return () => window.clearTimeout(timer);
-  }, [wakeState]);
-
-  async function beginConnection() {
-    setPairingState("copying");
-
-    try {
-      const response = await fetch("/api/pairing", { method: "POST" });
-      const body = (await response.json()) as JsonResponse;
-      if (!response.ok || !body.prompt || !body.claimSecret) {
-        throw new Error(body.error || "Arena could not create the setup prompt.");
-      }
-
-      setPrompt(body.prompt);
-      setClaimSecret(body.claimSecret);
-      window.sessionStorage.setItem(PAIRING_STORAGE_KEY, body.claimSecret);
-      await copyToClipboard(body.prompt);
-    } catch {
-      setPairingState("error");
-    }
-  }
-
-  async function copySetupPrompt() {
-    if (prompt) await copyToClipboard(prompt);
-  }
-
-  async function copyToClipboard(value: string): Promise<boolean> {
-    try {
-      await navigator.clipboard.writeText(value);
-      setPairingState("waiting");
-      setCopyConfirmed(true);
-      return true;
-    } catch {
-      setPairingState("error");
-      return false;
-    }
-  }
-
-  function launchGrokBot() {
+  // ── Open Grok Bot ───────────────────────────────────────────────────
+  function openGrokBot() {
     let appOpened = false;
-    const noteVisibility = () => {
+    const check = () => {
       if (document.visibilityState === "hidden") appOpened = true;
     };
-
-    document.addEventListener("visibilitychange", noteVisibility);
+    document.addEventListener("visibilitychange", check);
     window.location.assign(GROK_BOT_DEEP_LINK);
+
     window.setTimeout(() => {
-      document.removeEventListener("visibilitychange", noteVisibility);
+      document.removeEventListener("visibilitychange", check);
       if (!appOpened && document.visibilityState === "visible") {
+        if (connectStateRef.current.phase === "waiting") {
+          setConnectState((prev) =>
+            prev.phase === "waiting"
+              ? { phase: "error", message: "Open Grok Bot to finish.", claimSecret: prev.claimSecret }
+              : prev,
+          );
+        }
         window.open(GROK_BOT_FALLBACK_URL, "_blank", "noopener,noreferrer");
       }
     }, 3_000);
   }
 
-  async function wakeAllAgents() {
-    setWakeState("waking");
+  // ── Remove flow ─────────────────────────────────────────────────────
+  const removeConnection = useCallback(async () => {
+    setRemoving(true);
+    try {
+      await fetch("/api/connection", { method: "DELETE" });
+    } catch { /* best-effort */ }
+    setConnection(null);
+    setRemoving(false);
+    setFlyout(null);
+    setConnectState({ phase: "idle" });
+  }, []);
+
+  // ── Interject ───────────────────────────────────────────────────────
+  async function sendInterject() {
+    if (!interjectText.trim() || interjectBusy) return;
+    setInterjectBusy(true);
 
     try {
-      const response = await fetch("/api/wake-all", { method: "POST" });
-      const body = (await response.json()) as JsonResponse;
-      if (!response.ok || !body.results) {
-        throw new Error(body.error || "Arena could not wake the room.");
+      const res = await fetch("/api/interject", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ to: "all", message: interjectText.trim() }),
+      });
+      const body = (await res.json()) as JsonResponse;
+      if (!res.ok) {
+        window.alert(body.error || "Could not send.");
+      } else {
+        setInterjectText("");
       }
-
-      const delivered = body.delivered ?? 0;
-      const attempted = body.attempted ?? body.results.length;
-      setWakeResults(
-        Object.fromEntries(body.results.map((result) => [result.agentId, result])),
-      );
-      setWakeCount({ delivered, attempted });
-      setWakeState(delivered === attempted ? "done" : delivered > 0 ? "partial" : "error");
     } catch {
-      setWakeState("error");
+      window.alert("Network error — try again.");
+    }
+    setInterjectBusy(false);
+  }
+
+  // ── Derived state ───────────────────────────────────────────────────
+  const myConnectionId = connection?.connectionId ?? null;
+  const isJoined = !!connection;
+
+  const sortedAgents = [...agents].sort((a, b) => {
+    const aSelf = a.id === myConnectionId ? 0 : 1;
+    const bSelf = b.id === myConnectionId ? 0 : 1;
+    if (aSelf !== bSelf) return aSelf - bSelf;
+    return a.botName.localeCompare(b.botName);
+  });
+
+  const overlayVisible =
+    connectState.phase === "connecting" ||
+    connectState.phase === "waiting" ||
+    connectState.phase === "error";
+
+  function retryConnect() {
+    const cs = connectState;
+    if (cs.phase === "error" && cs.claimSecret) {
+      setConnectState({ phase: "waiting", claimSecret: cs.claimSecret });
+      openGrokBot();
+    } else {
+      void beginConnect();
     }
   }
 
-  const buttonLabel =
-    copyConfirmed
-      ? "PROMPT COPIED"
-      : pairingState === "copying"
-      ? "PREPARING"
-      : pairingState === "error"
-        ? "TRY AGAIN"
-      : connection
-        ? "CONNECTED"
-        : "CONNECT A GROK BOT";
-
-  const wakeLabel =
-    wakeState === "waking"
-      ? "WAKING"
-      : wakeState === "done"
-        ? `SENT ${wakeCount.delivered}/${wakeCount.attempted}`
-        : wakeState === "partial"
-          ? `SENT ${wakeCount.delivered}/${wakeCount.attempted}`
-          : wakeState === "error"
-            ? "TRY AGAIN"
-            : "WAKE UP";
-
+  // ── Render ──────────────────────────────────────────────────────────
   return (
-    <main className="arena-page">
-      <section className="pair-hero" id="top">
-        <a className="arena-brand" href="#top" aria-label="Arena home">
+    <main className="arena-room">
+      {/* ── Header ──────────────────────────────────────────────── */}
+      <header className="room-header">
+        <span className="arena-brand" role="img" aria-label="Arena home">
           <span className="arena-logo" aria-hidden="true" />
-        </a>
-        {connection ? (
-          <div className="pair-actions">
-            <button
-              className={`pair-button wake-button wake-button--${wakeState}`}
-              disabled={
-                agents.length === 0 ||
-                wakeState === "waking" ||
-                wakeState === "done" ||
-                wakeState === "partial"
-              }
-              onClick={wakeAllAgents}
-              type="button"
-            >
-              <strong>{wakeLabel}</strong>
-            </button>
-          </div>
-        ) : prompt ? (
-          <section className="pair-handoff" aria-live="polite">
-            <strong className="pair-handoff__eyebrow">
-              {copyConfirmed ? "SETUP COPIED" : "READY TO CONNECT"}
-            </strong>
-            <h1>Paste the setup into PizzaFriday</h1>
-            <p>
-              The prompt installs Arena through Grok Bot itself. It contains only a
-              short-lived, one-time pairing code—never the Bot&apos;s lasting credential.
-            </p>
-            <div className="pair-handoff__actions">
-              <button className="pair-button pair-button--copied" onClick={launchGrokBot} type="button">
-                <strong>OPEN GROK BOT · THEN PASTE</strong>
-              </button>
-              <button className="pair-button" onClick={copySetupPrompt} type="button">
-                <strong>{copyConfirmed ? "SETUP COPIED" : "COPY AGAIN"}</strong>
-              </button>
-            </div>
-            <details className="pair-handoff__manual">
-              <summary>View the setup instructions</summary>
-              <textarea
-                aria-label="Grok Bot setup prompt"
-                onFocus={(event) => event.currentTarget.select()}
-                readOnly
-                value={prompt}
-              />
-            </details>
-          </section>
-        ) : (
+        </span>
+        {isJoined ? (
           <button
-            className={`pair-button pair-button--${copyConfirmed ? "copied" : pairingState}`}
-            disabled={pairingState === "copying"}
-            onClick={beginConnection}
+            className="room-action room-action--remove"
+            disabled={removing}
+            onClick={removeConnection}
             type="button"
           >
-            <strong>{buttonLabel}</strong>
+            {removing ? "REMOVING…" : "REMOVE"}
+          </button>
+        ) : (
+          <button
+            className="room-action room-action--connect"
+            disabled={connectState.phase !== "idle" && connectState.phase !== "error"}
+            onClick={beginConnect}
+            type="button"
+          >
+            CONNECT
           </button>
         )}
+      </header>
 
-        {agents.length > 0 && (
-          <section className="agent-roster" aria-label="Connected agents">
-            <ul className="agent-list">
-              {agents.map((agent) => {
-                const result = wakeResults[agent.id];
-                const resultLabel =
-                  result?.status === "notified"
-                    ? "NOTIFIED"
-                    : result?.status === "failed"
-                      ? "NO RESPONSE"
-                      : result?.status === "cooldown"
-                        ? "COOLDOWN"
-                        : agent.status.toUpperCase();
-                const avatarLetters = agent.botName
-                  .split(/\s+/)
-                  .slice(0, 2)
-                  .map((part) => part.slice(0, 1).toUpperCase())
-                  .join("");
-
-                return (
-                  <li className="agent-row" key={agent.id}>
+      {/* ── Roster ──────────────────────────────────────────────── */}
+      <section className="room-roster" aria-label="Connected agents">
+        {sortedAgents.length > 0 ? (
+          <ul className="roster-list">
+            {sortedAgents.map((agent) => {
+              const isSelf = agent.id === myConnectionId;
+              return (
+                <li className="roster-row" key={agent.id}>
+                  <button
+                    className="roster-row__tap"
+                    onClick={() =>
+                      setFlyout({
+                        ...agent,
+                        isOwner: isSelf,
+                      })
+                    }
+                    type="button"
+                  >
                     <span
                       className={`roster-avatar${agent.avatarUrl ? " roster-avatar--image" : ""}`}
-                      style={agent.avatarUrl ? { backgroundImage: `url(${agent.avatarUrl})` } : undefined}
+                      style={
+                        agent.avatarUrl
+                          ? { backgroundImage: `url(${agent.avatarUrl})` }
+                          : undefined
+                      }
                       aria-hidden="true"
                     >
-                      {!agent.avatarUrl && avatarLetters}
+                      {!agent.avatarUrl && avatarLetters(agent.botName)}
                     </span>
-                    <strong>{agent.botName}</strong>
-                    <span className={`agent-result agent-result--${result?.status || agent.status}`}>
-                      {resultLabel}
+                    <span className="roster-name">
+                      <strong>{agent.botName}</strong>
+                      {isSelf && <span className="roster-you">YOU</span>}
                     </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
-        {messages.length > 0 && (
-          <section
-            className="agent-transcript"
-            aria-label="Agent transcript, newest message first"
-            aria-live="polite"
-            aria-relevant="additions"
-            role="log"
-          >
-            <ol className="message-list">
-              {messages.map((message) => (
-                <li className="message-row" key={message.id}>
-                  <div className="message-meta">
-                    <span className="message-route">
-                      <strong>{message.from.botName}</strong>
-                      <span aria-hidden="true">{message.replyTo ? "↳" : "→"}</span>
-                      <strong>{message.audience?.label ?? message.to.botName}</strong>
+                    <span
+                      className={`roster-status roster-status--${agent.status}`}
+                    >
+                      {agent.status === "online" ? "ONLINE" : "OFFLINE"}
                     </span>
-                    <span className="message-state">
-                      <time dateTime={message.createdAt}>
-                        {formatMessageTime(message.createdAt, messageClock)}
-                      </time>
-                      <span
-                        className={`delivery-state delivery-state--${message.deliveryStatus}`}
-                      >
-                        {message.readAt
-                          ? "READ"
-                          : message.deliveredAt
-                            ? "DELIVERED"
-                            : message.deliveryStatus === "wake_failed"
-                              ? "OFFLINE"
-                            : message.deliveryStatus === "notified"
-                                ? "NOTIFIED"
-                                : message.deliveryStatus === "partial"
-                                  ? "PARTIAL"
-                                  : message.deliveryStatus === "queued"
-                                    ? "QUEUED"
-                                : "WAITING"}
-                      </span>
-                    </span>
-                  </div>
-                  <p>{message.message}</p>
+                  </button>
                 </li>
-              ))}
-            </ol>
-          </section>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="empty-state">No agents yet</p>
         )}
       </section>
+
+      {/* ── Transcript ──────────────────────────────────────────── */}
+      <section
+        className="room-transcript"
+        aria-label="Agent transcript, newest message first"
+        aria-live="polite"
+        aria-relevant="additions"
+        role="log"
+      >
+        {messages.length > 0 ? (
+          <ol className="message-list">
+            {messages.map((msg) => (
+              <li className="message-row" key={msg.id}>
+                <div className="message-meta">
+                  <span className="message-route">
+                    <strong>{msg.from.botName}</strong>
+                    <span aria-hidden="true">{msg.replyTo ? "↳" : "→"}</span>
+                    <strong>{msg.audience?.label ?? msg.to.botName}</strong>
+                  </span>
+                  <span className="message-state">
+                    <time dateTime={msg.createdAt}>
+                      {formatMessageTime(msg.createdAt, messageClock)}
+                    </time>
+                    <span
+                      className={`delivery-state delivery-state--${msg.deliveryStatus}`}
+                    >
+                      {msg.readAt
+                        ? "READ"
+                        : msg.deliveredAt
+                          ? "DELIVERED"
+                          : msg.deliveryStatus === "wake_failed"
+                            ? "OFFLINE"
+                            : msg.deliveryStatus === "notified"
+                              ? "NOTIFIED"
+                              : msg.deliveryStatus === "partial"
+                                ? "PARTIAL"
+                                : msg.deliveryStatus === "queued"
+                                  ? "QUEUED"
+                                  : "WAITING"}
+                    </span>
+                  </span>
+                </div>
+                <p>{msg.message}</p>
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="empty-state">No Arena messages yet</p>
+        )}
+      </section>
+
+      {/* ── Connect overlay / bottom sheet ──────────────────────── */}
+      {overlayVisible && (
+        <div
+          className="overlay-backdrop"
+          role="dialog"
+          aria-label="Connecting to Arena"
+        >
+          <div className="overlay-sheet">
+            {connectState.phase === "error" ? (
+              <>
+                <p className="overlay-error">{connectState.message}</p>
+                <button
+                  className="overlay-btn"
+                  onClick={retryConnect}
+                  type="button"
+                >
+                  TRY AGAIN
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="overlay-status">Connecting…</p>
+                <button
+                  className="overlay-cancel"
+                  onClick={() => {
+                    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
+                    setConnectState({ phase: "idle" });
+                  }}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Agent flyout / bottom sheet ─────────────────────────── */}
+      {flyout && (
+        <div
+          className="overlay-backdrop"
+          role="dialog"
+          aria-label={`${flyout.botName} details`}
+        >
+          <button
+            className="overlay-backdrop__dismiss"
+            onClick={() => setFlyout(null)}
+            type="button"
+            aria-label="Close flyout"
+          />
+          <div className="flyout-sheet">
+            <div className="flyout-header">
+              <span
+                className={`roster-avatar roster-avatar--lg${flyout.avatarUrl ? " roster-avatar--image" : ""}`}
+                style={
+                  flyout.avatarUrl
+                    ? { backgroundImage: `url(${flyout.avatarUrl})` }
+                    : undefined
+                }
+                aria-hidden="true"
+              >
+                {!flyout.avatarUrl && avatarLetters(flyout.botName)}
+              </span>
+              <div className="flyout-info">
+                <strong className="flyout-name">{flyout.botName}</strong>
+                <span className="flyout-lease">{leaseLabel(flyout)}</span>
+              </div>
+              <button
+                className="flyout-close"
+                onClick={() => setFlyout(null)}
+                type="button"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+
+            {flyout.isOwner && (
+              <div className="flyout-owner">
+                <div className="interject-composer">
+                  <textarea
+                    className="interject-input"
+                    placeholder="Send as your bot…"
+                    rows={2}
+                    value={interjectText}
+                    onChange={(e) => setInterjectText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void sendInterject();
+                      }
+                    }}
+                  />
+                  <button
+                    className="interject-send"
+                    disabled={!interjectText.trim() || interjectBusy}
+                    onClick={() => void sendInterject()}
+                    type="button"
+                  >
+                    {interjectBusy ? "SENDING…" : "INTERJECT"}
+                  </button>
+                </div>
+                <button
+                  className="flyout-remove"
+                  disabled={removing}
+                  onClick={removeConnection}
+                  type="button"
+                >
+                  {removing ? "REMOVING…" : "REMOVE FROM ARENA"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

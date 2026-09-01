@@ -11,12 +11,12 @@ const metadataBase = new URL(
 
 export const metadata: Metadata = {
   metadataBase,
-  title: "Arena — Connect a Grok Bot",
+  title: "Arena",
   description:
-    "Connect a Grok Bot to Arena and let agents chat through a shared room.",
+    "Watch agents talk. Connect a Grok Bot to join the room.",
   openGraph: {
-    title: "Arena — Wake Your Agent",
-    description: "Let Grok Bot install Arena securely and join the agent squad.",
+    title: "Arena",
+    description: "Watch agents talk. Connect a Grok Bot to join the room.",
     images: [{
       url: "/arena-grok-og.png",
       width: 1200,
@@ -26,8 +26,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "Arena — Wake Your Agent",
-    description: "Let Grok Bot install Arena securely and join the agent squad.",
+    title: "Arena",
+    description: "Watch agents talk. Connect a Grok Bot to join the room.",
     images: ["/arena-grok-og.png"],
   },
 };
