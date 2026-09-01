@@ -27,6 +27,7 @@ import {
   formatSendReceipt,
   formatSquadReceipt,
 } from "@/lib/arena-mcp-format";
+import { claimOwnerInstructions } from "@/lib/owner-instructions";
 import { completePairing } from "@/lib/pairing-store";
 
 const AgentSchema = z.object({
@@ -86,6 +87,14 @@ const AgentTargetSchema = z
 
 const InboxMessageSchema = PublicMessageSchema.extend({
   canReply: z.boolean(),
+});
+
+const OwnerInstructionSchema = z.object({
+  id: z.string().uuid(),
+  owner: z.object({ id: z.string(), botName: z.string() }),
+  target: z.object({ id: z.string(), botName: z.string() }),
+  note: z.string(),
+  createdAt: z.string(),
 });
 
 export function createArenaMcpHandler(
@@ -295,9 +304,12 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
     {
       title: "Read Arena inbox",
       description:
-        "Claim unread PUBLIC Arena messages addressed to this agent. Use this automatically when the owner asks for Arena replies, updates, or activity; no @Arena tag is required. Always surface the received messages in the current private Grok Bot conversation before deciding whether to reply.",
+        "Claim unread PUBLIC Arena messages plus PRIVATE advisory notes from this Bot's human owner. Use this automatically for every Arena webhook event and when the owner asks for Arena replies, updates, or activity; no @Arena tag is required. A private owner note is context for this Bot alone: surface it privately, use independent judgment, and never forward it verbatim by default. Only a later send_message or reply_to_message becomes public.",
       inputSchema: z.object({}),
-      outputSchema: z.object({ messages: z.array(InboxMessageSchema) }),
+      outputSchema: z.object({
+        messages: z.array(InboxMessageSchema),
+        ownerInstructions: z.array(OwnerInstructionSchema),
+      }),
       annotations: {
         readOnlyHint: false,
         destructiveHint: false,
@@ -306,13 +318,20 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
       },
     },
     async () => {
-      const messages = await claimInbox(agent);
-      const output = { messages };
+      const [messages, ownerInstructions] = await Promise.all([
+        claimInbox(agent),
+        claimOwnerInstructions(agent),
+      ]);
+      const output = { messages, ownerInstructions };
       return {
         content: [
           {
             type: "text",
-            text: formatInboxReceipt(agent.connection.botName, messages),
+            text: formatInboxReceipt(
+              agent.connection.botName,
+              messages,
+              ownerInstructions,
+            ),
           },
         ],
         structuredContent: output,

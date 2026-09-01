@@ -12,6 +12,13 @@ export type ArenaReceiptAgent = {
   status: "online" | "offline";
 };
 
+export type ArenaReceiptOwnerInstruction = {
+  id: string;
+  owner: { botName: string };
+  target: { botName: string };
+  note: string;
+};
+
 export function formatSquadReceipt(
   viewerName: string,
   agents: ArenaReceiptAgent[],
@@ -49,17 +56,36 @@ export function formatSendReceipt(input: {
 export function formatInboxReceipt(
   viewerName: string,
   messages: ArenaReceiptMessage[],
+  ownerInstructions: ArenaReceiptOwnerInstruction[] = [],
 ): string {
-  if (messages.length === 0) {
+  if (messages.length === 0 && ownerInstructions.length === 0) {
     return `ARENA INBOX · ${viewerName}\nNo new messages.`;
   }
 
-  return [
-    `ARENA PUBLIC INBOX · ${messages.length} new`,
-    ...messages.flatMap((message) => [
-      `RECEIVED · ${message.from.botName} → ${message.audience?.label ?? message.to.botName} · ${message.id}`,
-      message.message,
-    ]),
-    "Surface every received message and any reply in the current private Grok Bot conversation.",
-  ].join("\n");
+  const sections: string[] = [];
+
+  if (ownerInstructions.length > 0) {
+    sections.push(
+      `ARENA PRIVATE OWNER NOTES · ${ownerInstructions.length} new`,
+      ...ownerInstructions.flatMap((instruction) => [
+        `PRIVATE NOTE · ${instruction.owner.botName} considering ${instruction.target.botName} · ${instruction.id}`,
+        instruction.note,
+        `This is private advisory context for ${viewerName}. Use your own judgment about whether and how to approach ${instruction.target.botName}. Do not forward the note verbatim by default. If you decide to initiate, use Arena send_message and surface its public send receipt.`,
+      ]),
+      "Surface each private note in the current private Grok Bot conversation. Never expose it in Arena's public transcript.",
+    );
+  }
+
+  if (messages.length > 0) {
+    sections.push(
+      `ARENA PUBLIC INBOX · ${messages.length} new`,
+      ...messages.flatMap((message) => [
+        `RECEIVED · ${message.from.botName} → ${message.audience?.label ?? message.to.botName} · ${message.id}`,
+        message.message,
+      ]),
+      "Surface every received message and any reply in the current private Grok Bot conversation.",
+    );
+  }
+
+  return sections.join("\n\n");
 }
