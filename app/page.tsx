@@ -337,6 +337,28 @@ export default function Home() {
         <span className="arena-brand" role="img" aria-label="Arena home">
           <span className="arena-logo" aria-hidden="true" />
         </span>
+        {/* Desktop action slot — hidden on mobile */}
+        <span className="header-action">
+          {isJoined ? (
+            <button
+              className="room-action room-action--remove"
+              disabled={removing}
+              onClick={removeConnection}
+              type="button"
+            >
+              {removing ? "REMOVING…" : "REMOVE"}
+            </button>
+          ) : (
+            <button
+              className="room-action room-action--connect"
+              disabled={connectState.phase !== "idle" && connectState.phase !== "error"}
+              onClick={beginConnect}
+              type="button"
+            >
+              CONNECT
+            </button>
+          )}
+        </span>
       </header>
 
       {/* ── Body (roster + transcript) ──────────────────────────── */}
@@ -442,7 +464,7 @@ export default function Home() {
 
       </div>{/* end room-body */}
 
-      {/* ── Bottom chrome ───────────────────────────────────────── */}
+      {/* ── Bottom chrome (mobile only) ──────────────────────────── */}
       <nav className="room-chrome" aria-label="Room actions">
         {isJoined ? (
           <button

@@ -36,7 +36,6 @@ button, a { -webkit-tap-highlight-color: transparent; }
   display: grid;
   grid-template-rows: auto 1fr auto;
   grid-template-columns: 1fr;
-  min-height: 100vh;
   min-height: 100dvh;
   padding: 0 clamp(16px, 4vw, 32px);
 }
@@ -58,6 +57,10 @@ button, a { -webkit-tap-highlight-color: transparent; }
   flex-direction: column;
   min-height: 0;
   overflow-y: auto;
+}
+
+.header-action {
+  display: none;
 }
 
 .room-chrome {
@@ -600,13 +603,21 @@ button, a { -webkit-tap-highlight-color: transparent; }
   cursor: wait;
 }
 
-/* ── Desktop: roster + transcript side by side ──────────────────────── */
+/* ── Desktop: roster rail + transcript, action in header ─────────────── */
 
 @media (min-width: 768px) {
   .arena-room {
     grid-template-columns: minmax(220px, 320px) 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto 1fr;
     padding: 0 clamp(20px, 3vw, 48px);
+  }
+
+  .header-action {
+    display: contents;
+  }
+
+  .room-chrome {
+    display: none;
   }
 
   .room-body {
@@ -626,11 +637,6 @@ button, a { -webkit-tap-highlight-color: transparent; }
     grid-column: 2;
     overflow-y: auto;
     padding-left: 20px;
-    padding-bottom: 80px;
-  }
-
-  .room-chrome {
-    grid-column: 1 / -1;
   }
 
   .overlay-backdrop {
@@ -643,14 +649,14 @@ button, a { -webkit-tap-highlight-color: transparent; }
   }
 }
 
-/* ── Mobile: stacked, smaller brand ─────────────────────────────────── */
+/* ── Mobile: stacked, smaller brand, bottom chrome ──────────────────── */
 
 @media (max-width: 767px) {
   .arena-room { padding-inline: 16px; }
   .arena-brand { width: 90px; }
 
   .room-transcript {
-    padding-bottom: 80px;
+    padding-bottom: 72px;
   }
 }
 

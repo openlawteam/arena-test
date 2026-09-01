@@ -135,7 +135,8 @@ test("missed deep link does not auto-open fallback docs URL", () => {
   assert.doesNotMatch(pageSource, /docs\.x\.ai/);
 });
 
-test("CONNECT/REMOVE is in bottom chrome, not header", () => {
+test("CONNECT/REMOVE in header on desktop, bottom chrome on mobile", () => {
+  assert.match(pageSource, /header-action/);
   assert.match(pageSource, /room-chrome/);
   assert.match(pageSource, /room-action--connect/);
   assert.match(pageSource, /room-action--remove/);
@@ -146,7 +147,9 @@ const cssSource = await readFile(
   "utf8",
 );
 
-test("desktop layout is side-by-side (not single column)", () => {
+test("desktop layout is side-by-side with action in header", () => {
   assert.match(cssSource, /grid-template-columns:\s*minmax/);
   assert.doesNotMatch(cssSource, /width:\s*min\(100%,\s*640px\)/);
+  assert.match(cssSource, /\.header-action\s*\{[^}]*display:\s*contents/s);
+  assert.match(cssSource, /\.room-chrome\s*\{[^}]*display:\s*none/s);
 });
