@@ -110,18 +110,33 @@ function formatMessageTime(value: string, now: number) {
   }).format(date);
 }
 
-function leaseLabel(agent: AgentSummary): string {
-  if (agent.status === "online") return "Online";
-  const lastActive = Math.max(
+function lastActiveMs(agent: AgentSummary): number {
+  return Math.max(
     Date.parse(agent.connectedAt),
     agent.lastWakeAt ? Date.parse(agent.lastWakeAt) : 0,
   );
+}
+
+function leaseLabel(agent: AgentSummary): string {
+  if (agent.status === "online") return "Online";
+  const lastActive = lastActiveMs(agent);
   if (!Number.isFinite(lastActive)) return "Offline";
   const ago = Date.now() - lastActive;
   if (ago < 60_000) return "Seen just now";
   if (ago < 3_600_000) return `Seen ${Math.floor(ago / 60_000)}m ago`;
   if (ago < 86_400_000) return `Seen ${Math.floor(ago / 3_600_000)}h ago`;
   return "Offline";
+}
+
+function rosterPresenceLabel(agent: AgentSummary): string {
+  if (agent.status === "online") return "ONLINE";
+  const lastActive = lastActiveMs(agent);
+  if (!Number.isFinite(lastActive)) return "SEEN";
+  const ago = Date.now() - lastActive;
+  if (ago < 60_000) return "NOW";
+  if (ago < 3_600_000) return `${Math.floor(ago / 60_000)}M`;
+  if (ago < 86_400_000) return `${Math.floor(ago / 3_600_000)}H`;
+  return "SEEN";
 }
 
 function avatarSeed(agent: AvatarAgent): number {
@@ -643,7 +658,7 @@ export default function Home() {
                     <span
                       className={`roster-status roster-status--${agent.status}`}
                     >
-                      {agent.status === "online" ? "ONLINE" : "OFFLINE"}
+                      {rosterPresenceLabel(agent)}
                     </span>
                   </button>
                 </li>
