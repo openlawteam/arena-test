@@ -110,3 +110,43 @@ const connectionRouteSource = await readFile(
 test("DELETE /api/connection consumes pairing in the database", () => {
   assert.match(connectionRouteSource, /consumePairingByConnectionId/);
 });
+
+const completeRouteSource = await readFile(
+  new URL("../app/api/pairing/complete/route.ts", import.meta.url),
+  "utf8",
+);
+
+test("already-connected webhook returns named error", () => {
+  assert.match(completeRouteSource, /already_connected/);
+  assert.match(completeRouteSource, /This bot is already connected\./);
+});
+
+test("completePairing returns already_connected for duplicate webhook", () => {
+  assert.match(source, /already_connected/);
+  assert.match(source, /export type CompletePairingResult/);
+});
+
+test("remove drops roster row optimistically (no 5s ghost)", () => {
+  assert.match(pageSource, /setAgents\(\(?prev\)?\s*=>\s*prev\.filter/);
+});
+
+test("missed deep link does not auto-open fallback docs URL", () => {
+  assert.doesNotMatch(pageSource, /window\.open\(/);
+  assert.doesNotMatch(pageSource, /docs\.x\.ai/);
+});
+
+test("CONNECT/REMOVE is in bottom chrome, not header", () => {
+  assert.match(pageSource, /room-chrome/);
+  assert.match(pageSource, /room-action--connect/);
+  assert.match(pageSource, /room-action--remove/);
+});
+
+const cssSource = await readFile(
+  new URL("../app/globals.css", import.meta.url),
+  "utf8",
+);
+
+test("desktop layout is side-by-side (not single column)", () => {
+  assert.match(cssSource, /grid-template-columns:\s*minmax/);
+  assert.doesNotMatch(cssSource, /width:\s*min\(100%,\s*640px\)/);
+});
