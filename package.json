@@ -7,6 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node run-conversation-network-migration.mjs",
     "build": "next build",
     "start": "next start",
     "test": "node --test tests/grok-connection.test.mjs tests/arena-mcp.test.mjs tests/arena-onboarding.test.mjs",
