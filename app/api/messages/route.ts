@@ -12,7 +12,8 @@ export async function GET() {
       { messages },
       { headers: { "cache-control": "no-store" } },
     );
-  } catch {
+  } catch (error) {
+    console.error("Arena message stream query failed.", error);
     return NextResponse.json(
       { error: "Arena could not load the message stream." },
       { status: 500, headers: { "cache-control": "no-store" } },
