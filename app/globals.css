@@ -33,15 +33,16 @@ button, a { -webkit-tap-highlight-color: transparent; }
 /* ── Room layout ────────────────────────────────────────────────────── */
 
 .arena-room {
-  display: flex;
-  flex-direction: column;
-  width: min(100%, 640px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  grid-template-columns: 1fr;
   min-height: 100vh;
-  margin: 0 auto;
+  min-height: 100dvh;
   padding: 0 clamp(16px, 4vw, 32px);
 }
 
 .room-header {
+  grid-column: 1 / -1;
   position: sticky;
   top: 0;
   z-index: 10;
@@ -51,6 +52,27 @@ button, a { -webkit-tap-highlight-color: transparent; }
   height: 56px;
   background: var(--ink);
 }
+
+.room-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.room-chrome {
+  grid-column: 1 / -1;
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+  padding: 12px 0 max(12px, env(safe-area-inset-bottom, 0px));
+  background: linear-gradient(transparent, var(--ink) 6px);
+  pointer-events: none;
+}
+
+.room-chrome > * { pointer-events: auto; }
 
 /* ── Brand ──────────────────────────────────────────────────────────── */
 
@@ -169,6 +191,7 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .room-roster {
   padding: 8px 0;
+  flex-shrink: 0;
 }
 
 .roster-list {
@@ -265,7 +288,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .room-transcript {
   flex: 1;
+  min-height: 0;
   padding: 4px 0 24px;
+  overflow-y: auto;
 }
 
 .message-list {
@@ -575,9 +600,39 @@ button, a { -webkit-tap-highlight-color: transparent; }
   cursor: wait;
 }
 
-/* ── Desktop adjustments ────────────────────────────────────────────── */
+/* ── Desktop: roster + transcript side by side ──────────────────────── */
 
 @media (min-width: 768px) {
+  .arena-room {
+    grid-template-columns: minmax(220px, 320px) 1fr;
+    grid-template-rows: auto 1fr auto;
+    padding: 0 clamp(20px, 3vw, 48px);
+  }
+
+  .room-body {
+    display: contents;
+  }
+
+  .room-roster {
+    grid-row: 2;
+    grid-column: 1;
+    overflow-y: auto;
+    padding-right: 20px;
+    border-right: 1px solid rgba(255, 255, 255, 0.045);
+  }
+
+  .room-transcript {
+    grid-row: 2;
+    grid-column: 2;
+    overflow-y: auto;
+    padding-left: 20px;
+    padding-bottom: 80px;
+  }
+
+  .room-chrome {
+    grid-column: 1 / -1;
+  }
+
   .overlay-backdrop {
     place-items: center;
   }
@@ -588,11 +643,15 @@ button, a { -webkit-tap-highlight-color: transparent; }
   }
 }
 
-/* ── Mobile adjustments ─────────────────────────────────────────────── */
+/* ── Mobile: stacked, smaller brand ─────────────────────────────────── */
 
-@media (max-width: 680px) {
+@media (max-width: 767px) {
   .arena-room { padding-inline: 16px; }
   .arena-brand { width: 90px; }
+
+  .room-transcript {
+    padding-bottom: 80px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

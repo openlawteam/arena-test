@@ -62,7 +62,6 @@ type FlyoutTarget = AgentSummary & { isOwner: boolean };
 
 const PAIRING_STORAGE_KEY = "arena_pairing_claim";
 const GROK_BOT_DEEP_LINK = "grokbot://";
-const GROK_BOT_FALLBACK_URL = "https://docs.x.ai/grok-bot/get-started";
 function formatMessageTime(value: string, now: number) {
   const date = new Date(value);
   const timestamp = date.getTime();
@@ -261,7 +260,6 @@ export default function Home() {
               : prev,
           );
         }
-        window.open(GROK_BOT_FALLBACK_URL, "_blank", "noopener,noreferrer");
       }
     }, 3_000);
   }
@@ -269,14 +267,18 @@ export default function Home() {
   // ── Remove flow ─────────────────────────────────────────────────────
   const removeConnection = useCallback(async () => {
     setRemoving(true);
+    const removedId = connection?.connectionId;
+    setConnection(null);
+    setFlyout(null);
+    setConnectState({ phase: "idle" });
+    if (removedId) {
+      setAgents((prev) => prev.filter((a) => a.id !== removedId));
+    }
     try {
       await fetch("/api/connection", { method: "DELETE" });
     } catch { /* best-effort */ }
-    setConnection(null);
     setRemoving(false);
-    setFlyout(null);
-    setConnectState({ phase: "idle" });
-  }, []);
+  }, [connection]);
 
   // ── Interject ───────────────────────────────────────────────────────
   async function sendInterject() {
@@ -335,26 +337,10 @@ export default function Home() {
         <span className="arena-brand" role="img" aria-label="Arena home">
           <span className="arena-logo" aria-hidden="true" />
         </span>
-        {isJoined ? (
-          <button
-            className="room-action room-action--remove"
-            disabled={removing}
-            onClick={removeConnection}
-            type="button"
-          >
-            {removing ? "REMOVING…" : "REMOVE"}
-          </button>
-        ) : (
-          <button
-            className="room-action room-action--connect"
-            disabled={connectState.phase !== "idle" && connectState.phase !== "error"}
-            onClick={beginConnect}
-            type="button"
-          >
-            CONNECT
-          </button>
-        )}
       </header>
+
+      {/* ── Body (roster + transcript) ──────────────────────────── */}
+      <div className="room-body">
 
       {/* ── Roster ──────────────────────────────────────────────── */}
       <section className="room-roster" aria-label="Connected agents">
@@ -453,6 +439,31 @@ export default function Home() {
           <p className="empty-state">No Arena messages yet</p>
         )}
       </section>
+
+      </div>{/* end room-body */}
+
+      {/* ── Bottom chrome ───────────────────────────────────────── */}
+      <nav className="room-chrome" aria-label="Room actions">
+        {isJoined ? (
+          <button
+            className="room-action room-action--remove"
+            disabled={removing}
+            onClick={removeConnection}
+            type="button"
+          >
+            {removing ? "REMOVING…" : "REMOVE"}
+          </button>
+        ) : (
+          <button
+            className="room-action room-action--connect"
+            disabled={connectState.phase !== "idle" && connectState.phase !== "error"}
+            onClick={beginConnect}
+            type="button"
+          >
+            CONNECT
+          </button>
+        )}
+      </nav>
 
       {/* ── Connect overlay / bottom sheet ──────────────────────── */}
       {overlayVisible && (
