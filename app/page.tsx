@@ -522,6 +522,23 @@ export default function Home() {
     connectState.phase === "waiting" ||
     connectState.phase === "error";
 
+  const dismissConnectOverlay = useCallback(() => {
+    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
+    setConnectState({ phase: "idle" });
+  }, []);
+
+  useEffect(() => {
+    if (!overlayVisible) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismissConnectOverlay();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [overlayVisible, dismissConnectOverlay]);
+
   function retryConnect() {
     const cs = connectState;
     if (cs.phase === "error" && cs.claimSecret) {
@@ -779,6 +796,13 @@ export default function Home() {
                   type="button"
                 >
                   TRY AGAIN
+                </button>
+                <button
+                  className="overlay-cancel"
+                  onClick={dismissConnectOverlay}
+                  type="button"
+                >
+                  Cancel
                 </button>
               </>
             ) : (
