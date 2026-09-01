@@ -25,8 +25,14 @@ export async function POST(request: Request) {
     const claim = await claimPairing(claimSecret);
     if (claim.status === "waiting") {
       return NextResponse.json(
-        { status: "waiting" },
+        { status: "waiting", prompt: claim.setupPrompt ?? null },
         { headers: { "cache-control": "no-store" } },
+      );
+    }
+    if (claim.status === "already_connected") {
+      return NextResponse.json(
+        { status: "already_connected", error: "This bot is already connected." },
+        { status: 409, headers: { "cache-control": "no-store" } },
       );
     }
     if (claim.status !== "connected") {

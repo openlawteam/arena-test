@@ -44,6 +44,7 @@ export type GrokConnection = {
 export type ConnectionStatus = "online" | "offline";
 
 export type ConnectionSummary = {
+  connectionId: string;
   botName: string;
   avatarUrl: string | null;
   host: string;
@@ -82,6 +83,7 @@ export function summarizeConnection(
   connection: GrokConnection,
 ): ConnectionSummary {
   return {
+    connectionId: connection.connectionId,
     botName: connection.botName,
     avatarUrl: connection.avatarUrl ?? null,
     host: new URL(connection.webhookUrl).hostname,

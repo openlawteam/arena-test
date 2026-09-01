@@ -10,6 +10,8 @@ type PairingRow = {
   status: "waiting" | "connected" | "consumed";
   encrypted_connection: string | null;
   expires_at: string;
+  setup_prompt: string | null;
+  fail_reason: string | null;
 };
 
 type PairingStatusRow = {
@@ -32,8 +34,9 @@ export type NewPairing = {
 };
 
 export type PairingClaim =
-  | { status: "waiting" }
+  | { status: "waiting"; setupPrompt: string | null }
   | { status: "connected"; encryptedConnection: string }
+  | { status: "already_connected" }
   | { status: "expired" | "missing" };
 
 export type StoredConnection = {
@@ -48,7 +51,7 @@ export type PairingTokenStatus =
   | "expired"
   | "missing";
 
-export async function createPairing(): Promise<NewPairing> {
+export async function createPairing(setupPrompt: string): Promise<NewPairing> {
   const pairingCode = randomBytes(6).toString("hex").toUpperCase();
   const claimSecret = randomBytes(32).toString("base64url");
   const expiresAt = new Date(
@@ -61,16 +64,31 @@ export async function createPairing(): Promise<NewPairing> {
       token_hash,
       claim_hash,
       status,
-      expires_at
+      expires_at,
+      setup_prompt
     ) VALUES (
       ${hashSecret(pairingCode)},
       ${hashSecret(claimSecret)},
       'waiting',
-      ${expiresAt}
+      ${expiresAt},
+      ${setupPrompt}
     )
   `;
 
   return { pairingCode, claimSecret, expiresAt };
+}
+
+export async function updatePairingPrompt(
+  claimSecret: string,
+  setupPrompt: string,
+): Promise<void> {
+  const sql = getSql();
+  await sql`
+    UPDATE arena_pairings
+    SET setup_prompt = ${setupPrompt}
+    WHERE claim_hash = ${hashSecret(claimSecret)}
+      AND status = 'waiting'
+  `;
 }
 
 export async function getPairingTokenStatus(
@@ -95,16 +113,49 @@ export async function getPairingTokenStatus(
   return "waiting";
 }
 
+export type CompletePairingResult =
+  | "ok"
+  | "invalid"
+  | "already_connected";
+
 export async function completePairing(
   pairingCode: string,
   agentToken: string,
   encryptedConnection: string,
-): Promise<boolean> {
+): Promise<CompletePairingResult> {
   const sql = getSql();
-  if (!/^[A-F0-9]{12}$/.test(pairingCode)) return false;
-  if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) return false;
+  if (!/^[A-F0-9]{12}$/.test(pairingCode)) return "invalid";
+  if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) return "invalid";
 
   const pendingPairingId = hashSecret(pairingCode);
+
+  const newConn = openConnection(encryptedConnection);
+  if (newConn) {
+    const existingRows = (await sql`
+      SELECT token_hash, encrypted_connection, last_seen_at
+      FROM arena_pairings
+      WHERE status = 'connected'
+        AND encrypted_connection IS NOT NULL
+    `) as ConnectedPairingRow[];
+
+    for (const existingRow of existingRows) {
+      const existingConn = openConnection(
+        existingRow.encrypted_connection,
+        existingRow.last_seen_at,
+      );
+      if (existingConn?.webhookUrl === newConn.webhookUrl) {
+        await sql`
+          UPDATE arena_pairings
+          SET status = 'consumed',
+              consumed_at = COALESCE(consumed_at, now()),
+              fail_reason = 'already_connected'
+          WHERE token_hash = ${pendingPairingId}
+            AND status = 'waiting'
+        `;
+        return "already_connected";
+      }
+    }
+  }
   const pairingId = hashSecret(agentToken);
   const rows = await sql`
     UPDATE arena_pairings
@@ -120,41 +171,14 @@ export async function completePairing(
     RETURNING token_hash
   `;
 
-  if (rows.length !== 1) return false;
-
-  const newConnection = openConnection(encryptedConnection);
-  if (newConnection) {
-    const existingRows = (await sql`
-      SELECT token_hash, encrypted_connection, last_seen_at
-      FROM arena_pairings
-      WHERE token_hash <> ${pairingId}
-        AND status = 'connected'
-        AND encrypted_connection IS NOT NULL
-    `) as ConnectedPairingRow[];
-
-    for (const existingRow of existingRows) {
-      const existingConnection = openConnection(
-        existingRow.encrypted_connection,
-        existingRow.last_seen_at,
-      );
-      if (existingConnection?.webhookUrl !== newConnection.webhookUrl) continue;
-
-      await sql`
-        UPDATE arena_pairings
-        SET status = 'consumed', consumed_at = COALESCE(consumed_at, now())
-        WHERE token_hash = ${existingRow.token_hash}
-          AND status = 'connected'
-      `;
-    }
-  }
-
-  return true;
+  if (rows.length !== 1) return "invalid";
+  return "ok";
 }
 
 export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
   const sql = getSql();
   const rows = (await sql`
-    SELECT status, encrypted_connection, expires_at
+    SELECT status, encrypted_connection, expires_at, setup_prompt, fail_reason
     FROM arena_pairings
     WHERE claim_hash = ${hashSecret(claimSecret)}
     LIMIT 1
@@ -162,10 +186,13 @@ export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
   const row = rows[0];
 
   if (!row) return { status: "missing" };
+  if (row.status === "consumed" && row.fail_reason === "already_connected") {
+    return { status: "already_connected" };
+  }
   if (Date.parse(row.expires_at) <= Date.now()) return { status: "expired" };
   if (row.status === "consumed") return { status: "expired" };
   if (row.status !== "connected" || !row.encrypted_connection) {
-    return { status: "waiting" };
+    return { status: "waiting", setupPrompt: row.setup_prompt };
   }
 
   await sql`
@@ -209,6 +236,26 @@ export async function updateConnectedPairing(
     WHERE token_hash = ${pairingId}
       AND status = 'connected'
   `;
+}
+
+export async function consumePairingByConnectionId(
+  connectionId: string,
+): Promise<boolean> {
+  const pairings = await listConnectedPairings();
+  for (const { pairingId, encryptedConnection } of pairings) {
+    const connection = openConnection(encryptedConnection);
+    if (connection?.connectionId === connectionId) {
+      const sql = getSql();
+      await sql`
+        UPDATE arena_pairings
+        SET status = 'consumed', consumed_at = COALESCE(consumed_at, now())
+        WHERE token_hash = ${pairingId}
+          AND status = 'connected'
+      `;
+      return true;
+    }
+  }
+  return false;
 }
 
 function getSql(): NeonQueryFunction<false, false> {

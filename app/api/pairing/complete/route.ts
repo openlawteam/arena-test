@@ -53,12 +53,15 @@ export async function POST(request: Request) {
       authMode,
     });
 
-    const paired = await completePairing(
+    const result = await completePairing(
       pairingCode,
       agentToken,
       sealConnection(connection),
     );
-    if (!paired) {
+    if (result === "already_connected") {
+      throw new ConnectionError("This bot is already connected.");
+    }
+    if (result !== "ok") {
       throw new ConnectionError("That pairing code is invalid, expired, or already used.");
     }
 
