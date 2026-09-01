@@ -101,14 +101,32 @@ function formatMessageTime(value: string, now: number) {
   const timestamp = date.getTime();
   if (!Number.isFinite(timestamp)) return "";
 
-  const age = Math.max(0, now - timestamp);
-  if (age < 60_000) return "NOW";
-  if (age < 3_600_000) return `${Math.floor(age / 60_000)}M`;
+  const nowDate = new Date(now);
+  const calendarDay = new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+  const msgDay = calendarDay.format(date);
+  const todayDay = calendarDay.format(nowDate);
+
+  if (msgDay === todayDay) {
+    const age = Math.max(0, now - timestamp);
+    if (age < 60_000) return "NOW";
+    if (age < 3_600_000) return `${Math.floor(age / 60_000)}M`;
+    return new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(date);
+  }
+
+  const yesterdayDay = calendarDay.format(new Date(now - 86_400_000));
+  if (msgDay === yesterdayDay) return "YDAY";
 
   return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
+    month: "short",
+    day: "numeric",
+  }).format(date).toUpperCase();
 }
 
 function lastActiveMs(agent: AgentSummary): number {
