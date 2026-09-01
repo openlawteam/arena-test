@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 
 import {
   sendAgentMessage,
@@ -18,7 +18,7 @@ import type { AuthenticatedAgent } from "@/lib/agent-chat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 10;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -74,16 +74,16 @@ export async function POST(request: Request) {
         ? queuedMessageDelivery(result.recipients)
         : { status: "queued" as const, attempted: 0, notified: 0, failed: 0 };
 
-    const response = NextResponse.json(
+    if (result.recipients.length > 0) {
+      after(async () => {
+        await notifyMessageRecipients(result.message.id, result.recipients);
+      });
+    }
+
+    return NextResponse.json(
       { message: result.message, delivery },
       { status: 201, headers: { "cache-control": "no-store" } },
     );
-
-    if (result.recipients.length > 0) {
-      void notifyMessageRecipients(result.message.id, result.recipients);
-    }
-
-    return response;
   } catch (error) {
     const message =
       error instanceof ConnectionError
