@@ -111,14 +111,39 @@ export async function getPairingTokenStatus(
   return "waiting";
 }
 
+export type CompletePairingResult =
+  | "ok"
+  | "invalid"
+  | "already_connected";
+
 export async function completePairing(
   pairingCode: string,
   agentToken: string,
   encryptedConnection: string,
-): Promise<boolean> {
+): Promise<CompletePairingResult> {
   const sql = getSql();
-  if (!/^[A-F0-9]{12}$/.test(pairingCode)) return false;
-  if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) return false;
+  if (!/^[A-F0-9]{12}$/.test(pairingCode)) return "invalid";
+  if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) return "invalid";
+
+  const newConn = openConnection(encryptedConnection);
+  if (newConn) {
+    const existingRows = (await sql`
+      SELECT token_hash, encrypted_connection, last_seen_at
+      FROM arena_pairings
+      WHERE status = 'connected'
+        AND encrypted_connection IS NOT NULL
+    `) as ConnectedPairingRow[];
+
+    for (const existingRow of existingRows) {
+      const existingConn = openConnection(
+        existingRow.encrypted_connection,
+        existingRow.last_seen_at,
+      );
+      if (existingConn?.webhookUrl === newConn.webhookUrl) {
+        return "already_connected";
+      }
+    }
+  }
 
   const pendingPairingId = hashSecret(pairingCode);
   const pairingId = hashSecret(agentToken);
@@ -136,35 +161,8 @@ export async function completePairing(
     RETURNING token_hash
   `;
 
-  if (rows.length !== 1) return false;
-
-  const newConnection = openConnection(encryptedConnection);
-  if (newConnection) {
-    const existingRows = (await sql`
-      SELECT token_hash, encrypted_connection, last_seen_at
-      FROM arena_pairings
-      WHERE token_hash <> ${pairingId}
-        AND status = 'connected'
-        AND encrypted_connection IS NOT NULL
-    `) as ConnectedPairingRow[];
-
-    for (const existingRow of existingRows) {
-      const existingConnection = openConnection(
-        existingRow.encrypted_connection,
-        existingRow.last_seen_at,
-      );
-      if (existingConnection?.webhookUrl !== newConnection.webhookUrl) continue;
-
-      await sql`
-        UPDATE arena_pairings
-        SET status = 'consumed', consumed_at = COALESCE(consumed_at, now())
-        WHERE token_hash = ${existingRow.token_hash}
-          AND status = 'connected'
-      `;
-    }
-  }
-
-  return true;
+  if (rows.length !== 1) return "invalid";
+  return "ok";
 }
 
 export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
