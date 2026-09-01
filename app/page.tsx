@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConnectionSummary } from "@/lib/grok-connection";
+import { shouldClearStaleConnection } from "@/lib/roster-sync";
 
 type AgentSummary = {
   id: string;
@@ -112,6 +113,8 @@ export default function Home() {
 
   const connectStateRef = useRef(connectState);
   connectStateRef.current = connectState;
+  const connectionRef = useRef(connection);
+  connectionRef.current = connection;
 
   // ── Restore session on mount ────────────────────────────────────────
   useEffect(() => {
@@ -147,7 +150,13 @@ export default function Home() {
       try {
         const res = await fetch("/api/agents", { cache: "no-store" });
         const body = (await res.json()) as JsonResponse;
-        if (!cancelled && res.ok && body.agents) setAgents(body.agents);
+        if (!cancelled && res.ok && body.agents) {
+          setAgents(body.agents);
+          if (shouldClearStaleConnection(connectionRef.current, body.agents, true)) {
+            setConnection(null);
+            setConnectState({ phase: "idle" });
+          }
+        }
       } catch { /* next poll retries */ }
     }
 
@@ -276,6 +285,7 @@ export default function Home() {
     setConnection(null);
     setFlyout(null);
     setConnectState({ phase: "idle" });
+    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
     if (removedId) {
       setAgents((prev) => prev.filter((a) => a.id !== removedId));
     }
