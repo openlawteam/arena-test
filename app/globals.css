@@ -359,6 +359,12 @@ button, a { -webkit-tap-highlight-color: transparent; }
   overflow-wrap: anywhere;
 }
 
+.message-row--reply {
+  margin-left: 20px;
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
+  padding-left: 12px;
+}
+
 /* ── Empty state ────────────────────────────────────────────────────── */
 
 .empty-state {

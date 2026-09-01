@@ -438,7 +438,7 @@ export default function Home() {
         {messages.length > 0 ? (
           <ol className="message-list">
             {messages.map((msg) => (
-              <li className="message-row" key={msg.id}>
+              <li className={`message-row${msg.replyTo ? " message-row--reply" : ""}`} key={msg.id}>
                 <div className="message-meta">
                   <span className="message-route">
                     <strong>{msg.from.botName}</strong>
