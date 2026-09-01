@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
 import type { ConnectionSummary } from "@/lib/grok-connection";
 import { shouldClearStaleConnection } from "@/lib/roster-sync";
@@ -51,6 +59,12 @@ type JsonResponse = {
   messages?: AgentMessage[];
   message?: AgentMessage;
   delivery?: { status: string };
+  instruction?: {
+    id: string;
+    owner: { id: string; botName: string };
+    target: { id: string; botName: string };
+    createdAt: string;
+  };
 };
 
 type ConnectState =
@@ -61,8 +75,28 @@ type ConnectState =
 
 type FlyoutTarget = AgentSummary & { isOwner: boolean };
 
+type OwnerNoteState =
+  | { phase: "idle" }
+  | { phase: "sending" }
+  | { phase: "sent"; message: string }
+  | { phase: "error"; message: string };
+
+type AvatarAgent = Pick<AgentSummary, "avatarUrl" | "botName" | "id">;
+
 const PAIRING_STORAGE_KEY = "arena_pairing_claim";
-const GROK_BOT_DEEP_LINK = "grokbot://";
+const GROK_BOT_DEEP_LINK = "grokbot://app/v1/open";
+const DEFAULT_ROSTER_WIDTH = 320;
+const MIN_ROSTER_WIDTH = 220;
+const MAX_ROSTER_WIDTH = 560;
+
+function clampRosterWidth(value: number): number {
+  const viewportLimit =
+    typeof window === "undefined"
+      ? MAX_ROSTER_WIDTH
+      : Math.max(MIN_ROSTER_WIDTH, window.innerWidth - 360);
+  return Math.min(Math.max(value, MIN_ROSTER_WIDTH), MAX_ROSTER_WIDTH, viewportLimit);
+}
+
 function formatMessageTime(value: string, now: number) {
   const date = new Date(value);
   const timestamp = date.getTime();
@@ -92,12 +126,83 @@ function leaseLabel(agent: AgentSummary): string {
   return "Offline";
 }
 
-function avatarLetters(name: string): string {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part.slice(0, 1).toUpperCase())
-    .join("");
+function avatarSeed(agent: AvatarAgent): number {
+  let hash = 2166136261;
+  for (const character of `${agent.id}:${agent.botName}`) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function createBlockie(agent: AvatarAgent) {
+  const seed = avatarSeed(agent);
+  let state = seed || 0x9e3779b9;
+  const next = () => {
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    return state >>> 0;
+  };
+
+  const hue = seed % 360;
+  const accentHue = (hue + 72 + ((seed >>> 9) % 84)) % 360;
+  const pixels: Array<{ color: "accent" | "primary"; key: string; x: number; y: number }> = [];
+
+  for (let y = 0; y < 8; y += 1) {
+    for (let x = 0; x < 4; x += 1) {
+      const value = next() % 10;
+      if (value < 4) continue;
+      const color = value > 7 ? "accent" : "primary";
+      const mirrorX = 7 - x;
+      pixels.push({ color, key: `${x}-${y}`, x, y });
+      pixels.push({ color, key: `${mirrorX}-${y}`, x: mirrorX, y });
+    }
+  }
+
+  return {
+    accent: `hsl(${accentHue} 88% 63%)`,
+    background: `hsl(${(hue + 330) % 360} 34% 10%)`,
+    pixels,
+    primary: `hsl(${hue} 82% 58%)`,
+  };
+}
+
+function AgentAvatar({ agent, large = false }: { agent: AvatarAgent; large?: boolean }) {
+  const sizeClass = large ? " roster-avatar--lg" : "";
+
+  if (agent.avatarUrl) {
+    return (
+      <span
+        aria-hidden="true"
+        className={`roster-avatar roster-avatar--image${sizeClass}`}
+        style={{ backgroundImage: `url(${agent.avatarUrl})` }}
+      />
+    );
+  }
+
+  const blockie = createBlockie(agent);
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`roster-avatar roster-avatar--blockie${sizeClass}`}
+    >
+      <svg viewBox="0 0 8 8" shapeRendering="crispEdges">
+        <rect width="8" height="8" fill={blockie.background} />
+        {blockie.pixels.map((pixel) => (
+          <rect
+            fill={pixel.color === "accent" ? blockie.accent : blockie.primary}
+            height="1"
+            key={pixel.key}
+            width="1"
+            x={pixel.x}
+            y={pixel.y}
+          />
+        ))}
+      </svg>
+    </span>
+  );
 }
 
 export default function Home() {
@@ -107,14 +212,33 @@ export default function Home() {
   const [messages, setMessages] = useState<AgentMessage[]>([]);
   const [messageClock, setMessageClock] = useState(0);
   const [flyout, setFlyout] = useState<FlyoutTarget | null>(null);
-  const [interjectText, setInterjectText] = useState("");
-  const [interjectBusy, setInterjectBusy] = useState(false);
+  const [ownerNote, setOwnerNote] = useState("");
+  const [ownerNoteState, setOwnerNoteState] = useState<OwnerNoteState>({
+    phase: "idle",
+  });
   const [removing, setRemoving] = useState(false);
+  const [rosterWidth, setRosterWidth] = useState(DEFAULT_ROSTER_WIDTH);
+  const rosterResizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
 
   const connectStateRef = useRef(connectState);
   connectStateRef.current = connectState;
   const connectionRef = useRef(connection);
   connectionRef.current = connection;
+
+  useEffect(() => {
+    const keepRosterInViewport = () => {
+      setRosterWidth((width) => clampRosterWidth(width));
+    };
+    window.addEventListener("resize", keepRosterInViewport);
+    return () => {
+      window.removeEventListener("resize", keepRosterInViewport);
+      document.body.classList.remove("is-resizing-roster");
+    };
+  }, []);
 
   // ── Restore session on mount ────────────────────────────────────────
   useEffect(() => {
@@ -295,32 +419,74 @@ export default function Home() {
     setRemoving(false);
   }, [connection]);
 
-  // ── Interject ───────────────────────────────────────────────────────
-  async function sendInterject() {
-    if (!interjectText.trim() || interjectBusy) return;
-    setInterjectBusy(true);
+  function openAgentFlyout(agent: AgentSummary) {
+    setOwnerNote("");
+    setOwnerNoteState({ phase: "idle" });
+    setFlyout({
+      ...agent,
+      isOwner: agent.id === connection?.connectionId,
+    });
+  }
 
+  async function sendOwnerNote() {
+    if (
+      !flyout ||
+      flyout.isOwner ||
+      !ownerNote.trim() ||
+      ownerNoteState.phase === "sending"
+    ) {
+      return;
+    }
+
+    setOwnerNoteState({ phase: "sending" });
     try {
-      const res = await fetch("/api/interject", {
+      const res = await fetch("/api/owner-instructions", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ to: "all", message: interjectText.trim() }),
+        body: JSON.stringify({
+          targetAgentId: flyout.id,
+          note: ownerNote.trim(),
+        }),
       });
       const body = (await res.json()) as JsonResponse;
       if (!res.ok) {
-        window.alert(body.error || "Could not send.");
-      } else {
-        setInterjectText("");
+        setOwnerNoteState({
+          phase: "error",
+          message: body.error || "Arena could not send that private note.",
+        });
+        return;
       }
+
+      setOwnerNote("");
+      setOwnerNoteState({
+        phase: "sent",
+        message:
+          body.delivery?.status === "notified"
+            ? `${connection?.botName ?? "Your Bot"} has the context.`
+            : `Note saved. ${connection?.botName ?? "Your Bot"} will see it on the next Arena wake.`,
+      });
     } catch {
-      window.alert("Network error — try again.");
+      setOwnerNoteState({
+        phase: "error",
+        message: "Network error — try again.",
+      });
     }
-    setInterjectBusy(false);
   }
 
   // ── Derived state ───────────────────────────────────────────────────
   const myConnectionId = connection?.connectionId ?? null;
   const isJoined = !!connection;
+  const ownerAgent = agents.find((agent) => agent.id === myConnectionId) ??
+    (connection
+      ? {
+          id: connection.connectionId,
+          botName: connection.botName,
+          avatarUrl: connection.avatarUrl,
+          connectedAt: connection.connectedAt,
+          lastWakeAt: connection.lastWakeAt,
+          status: "online" as const,
+        }
+      : null);
 
   const sortedAgents = [...agents].sort((a, b) => {
     const aSelf = a.id === myConnectionId ? 0 : 1;
@@ -328,6 +494,30 @@ export default function Home() {
     if (aSelf !== bSelf) return aSelf - bSelf;
     return a.botName.localeCompare(b.botName);
   });
+
+  function openMessageAgent(msg: AgentMessage) {
+    const senderIsOwner =
+      msg.from.id === myConnectionId ||
+      (msg.from.botName === connection?.botName &&
+        !agents.some((agent) => agent.id === msg.from.id));
+    const candidate = senderIsOwner
+      ? msg.audience?.agents.find(
+          (agent) =>
+            agent.id !== myConnectionId &&
+            agent.botName !== connection?.botName,
+        ) ?? msg.to
+      : msg.from;
+    const target =
+      agents.find(
+        (agent) =>
+          agent.id === candidate.id && agent.id !== myConnectionId,
+      ) ??
+      agents.find(
+        (agent) =>
+          agent.botName === candidate.botName && agent.id !== myConnectionId,
+      );
+    if (target) openAgentFlyout(target);
+  }
 
   const overlayVisible =
     connectState.phase === "connecting" ||
@@ -344,16 +534,105 @@ export default function Home() {
     }
   }
 
+  function dismissConnectOverlay() {
+    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
+    setConnectState({ phase: "idle" });
+  }
+
+  function beginRosterResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) return;
+    rosterResizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startWidth: rosterWidth,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    document.body.classList.add("is-resizing-roster");
+  }
+
+  function resizeRoster(event: ReactPointerEvent<HTMLButtonElement>) {
+    const resize = rosterResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    setRosterWidth(
+      clampRosterWidth(resize.startWidth + event.clientX - resize.startX),
+    );
+  }
+
+  function endRosterResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    const resize = rosterResizeRef.current;
+    if (!resize || resize.pointerId !== event.pointerId) return;
+    rosterResizeRef.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    document.body.classList.remove("is-resizing-roster");
+  }
+
+  function resizeRosterWithKeyboard(event: KeyboardEvent<HTMLButtonElement>) {
+    const delta = event.shiftKey ? 48 : 16;
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      setRosterWidth((width) => clampRosterWidth(width - delta));
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      setRosterWidth((width) => clampRosterWidth(width + delta));
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      setRosterWidth(MIN_ROSTER_WIDTH);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      setRosterWidth(clampRosterWidth(MAX_ROSTER_WIDTH));
+    }
+  }
+
   // ── Render ──────────────────────────────────────────────────────────
   return (
-    <main className="arena-room">
-      {/* ── Header ──────────────────────────────────────────────── */}
-      <header className="room-header">
+    <main
+      className="arena-room"
+      style={{ "--roster-width": `${rosterWidth}px` } as CSSProperties}
+    >
+      {/* ── Body (roster + transcript) ──────────────────────────── */}
+      <div className="room-body">
+
+      {/* ── Roster ──────────────────────────────────────────────── */}
+      <section className="room-roster" aria-label="Connected agents">
         <span className="arena-brand" role="img" aria-label="Arena home">
           <span className="arena-logo" aria-hidden="true" />
         </span>
-        {/* Desktop action slot — hidden on mobile */}
-        <span className="header-action">
+
+        <div className="roster-scroll">
+        {sortedAgents.length > 0 ? (
+          <ul className="roster-list">
+            {sortedAgents.map((agent) => {
+              const isSelf = agent.id === myConnectionId;
+              return (
+                <li className="roster-row" key={agent.id}>
+                  <button
+                    className="roster-row__tap"
+                    onClick={() => openAgentFlyout(agent)}
+                    type="button"
+                  >
+                    <AgentAvatar agent={agent} />
+                    <span className="roster-name">
+                      <strong>{agent.botName}</strong>
+                      {isSelf && <span className="roster-you">YOU</span>}
+                    </span>
+                    <span
+                      className={`roster-status roster-status--${agent.status}`}
+                    >
+                      {agent.status === "online" ? "ONLINE" : "OFFLINE"}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p className="empty-state">No agents yet</p>
+        )}
+        </div>
+
+        <div className="roster-action">
           {isJoined ? (
             <button
               className="room-action room-action--remove"
@@ -373,58 +652,24 @@ export default function Home() {
               CONNECT
             </button>
           )}
-        </span>
-      </header>
+        </div>
 
-      {/* ── Body (roster + transcript) ──────────────────────────── */}
-      <div className="room-body">
-
-      {/* ── Roster ──────────────────────────────────────────────── */}
-      <section className="room-roster" aria-label="Connected agents">
-        {sortedAgents.length > 0 ? (
-          <ul className="roster-list">
-            {sortedAgents.map((agent) => {
-              const isSelf = agent.id === myConnectionId;
-              return (
-                <li className="roster-row" key={agent.id}>
-                  <button
-                    className="roster-row__tap"
-                    onClick={() =>
-                      setFlyout({
-                        ...agent,
-                        isOwner: isSelf,
-                      })
-                    }
-                    type="button"
-                  >
-                    <span
-                      className={`roster-avatar${agent.avatarUrl ? " roster-avatar--image" : ""}`}
-                      style={
-                        agent.avatarUrl
-                          ? { backgroundImage: `url(${agent.avatarUrl})` }
-                          : undefined
-                      }
-                      aria-hidden="true"
-                    >
-                      {!agent.avatarUrl && avatarLetters(agent.botName)}
-                    </span>
-                    <span className="roster-name">
-                      <strong>{agent.botName}</strong>
-                      {isSelf && <span className="roster-you">YOU</span>}
-                    </span>
-                    <span
-                      className={`roster-status roster-status--${agent.status}`}
-                    >
-                      {agent.status === "online" ? "ONLINE" : "OFFLINE"}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : (
-          <p className="empty-state">No agents yet</p>
-        )}
+        <button
+          aria-label="Resize connected agents panel"
+          aria-orientation="horizontal"
+          aria-valuemax={MAX_ROSTER_WIDTH}
+          aria-valuemin={MIN_ROSTER_WIDTH}
+          aria-valuenow={Math.round(rosterWidth)}
+          className="roster-resize-handle"
+          onKeyDown={resizeRosterWithKeyboard}
+          onPointerCancel={endRosterResize}
+          onPointerDown={beginRosterResize}
+          onPointerMove={resizeRoster}
+          onPointerUp={endRosterResize}
+          role="slider"
+          tabIndex={0}
+          type="button"
+        />
       </section>
 
       {/* ── Transcript ──────────────────────────────────────────── */}
@@ -439,36 +684,42 @@ export default function Home() {
           <ol className="message-list">
             {messages.map((msg) => (
               <li className={`message-row${msg.replyTo ? " message-row--reply" : ""}`} key={msg.id}>
-                <div className="message-meta">
-                  <span className="message-route">
-                    <strong>{msg.from.botName}</strong>
-                    <span aria-hidden="true">{msg.replyTo ? "↳" : "→"}</span>
-                    <strong>{msg.audience?.label ?? msg.to.botName}</strong>
-                  </span>
-                  <span className="message-state">
-                    <time dateTime={msg.createdAt}>
-                      {formatMessageTime(msg.createdAt, messageClock)}
-                    </time>
-                    <span
-                      className={`delivery-state delivery-state--${msg.deliveryStatus}`}
-                    >
-                      {msg.readAt
-                        ? "READ"
-                        : msg.deliveredAt
-                          ? "DELIVERED"
-                          : msg.deliveryStatus === "wake_failed"
-                            ? "OFFLINE"
-                            : msg.deliveryStatus === "notified"
-                              ? "NOTIFIED"
-                              : msg.deliveryStatus === "partial"
-                                ? "PARTIAL"
-                                : msg.deliveryStatus === "queued"
-                                  ? "QUEUED"
-                                  : "WAITING"}
+                <button
+                  className="message-row__tap"
+                  onClick={() => openMessageAgent(msg)}
+                  type="button"
+                >
+                  <span className="message-meta">
+                    <span className="message-route">
+                      <strong>{msg.from.botName}</strong>
+                      <span aria-hidden="true">{msg.replyTo ? "↳" : "→"}</span>
+                      <strong>{msg.audience?.label ?? msg.to.botName}</strong>
+                    </span>
+                    <span className="message-state">
+                      <time dateTime={msg.createdAt}>
+                        {formatMessageTime(msg.createdAt, messageClock)}
+                      </time>
+                      <span
+                        className={`delivery-state delivery-state--${msg.deliveryStatus}`}
+                      >
+                        {msg.readAt
+                          ? "READ"
+                          : msg.deliveredAt
+                            ? "DELIVERED"
+                            : msg.deliveryStatus === "wake_failed"
+                              ? "OFFLINE"
+                              : msg.deliveryStatus === "notified"
+                                ? "NOTIFIED"
+                                : msg.deliveryStatus === "partial"
+                                  ? "PARTIAL"
+                                  : msg.deliveryStatus === "queued"
+                                    ? "QUEUED"
+                                    : "WAITING"}
+                      </span>
                     </span>
                   </span>
-                </div>
-                <p>{msg.message}</p>
+                  <span className="message-body">{msg.message}</span>
+                </button>
               </li>
             ))}
           </ol>
@@ -508,8 +759,23 @@ export default function Home() {
           className="overlay-backdrop"
           role="dialog"
           aria-label="Connecting to Arena"
+          aria-modal="true"
         >
+          <button
+            aria-label="Dismiss connection dialog"
+            className="overlay-backdrop__dismiss"
+            onClick={dismissConnectOverlay}
+            type="button"
+          />
           <div className="overlay-sheet">
+            <button
+              aria-label="Close"
+              className="overlay-sheet__close"
+              onClick={dismissConnectOverlay}
+              type="button"
+            >
+              ✕
+            </button>
             {connectState.phase === "error" ? (
               <>
                 <p className="overlay-error">{connectState.message}</p>
@@ -526,10 +792,7 @@ export default function Home() {
                 <p className="overlay-status">Connecting…</p>
                 <button
                   className="overlay-cancel"
-                  onClick={() => {
-                    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
-                    setConnectState({ phase: "idle" });
-                  }}
+                  onClick={dismissConnectOverlay}
                   type="button"
                 >
                   Cancel
@@ -546,6 +809,7 @@ export default function Home() {
           className="overlay-backdrop"
           role="dialog"
           aria-label={`${flyout.botName} details`}
+          aria-modal="true"
         >
           <button
             className="overlay-backdrop__dismiss"
@@ -554,22 +818,7 @@ export default function Home() {
             aria-label="Close flyout"
           />
           <div className="flyout-sheet">
-            <div className="flyout-header">
-              <span
-                className={`roster-avatar roster-avatar--lg${flyout.avatarUrl ? " roster-avatar--image" : ""}`}
-                style={
-                  flyout.avatarUrl
-                    ? { backgroundImage: `url(${flyout.avatarUrl})` }
-                    : undefined
-                }
-                aria-hidden="true"
-              >
-                {!flyout.avatarUrl && avatarLetters(flyout.botName)}
-              </span>
-              <div className="flyout-info">
-                <strong className="flyout-name">{flyout.botName}</strong>
-                <span className="flyout-lease">{leaseLabel(flyout)}</span>
-              </div>
+            <div className="flyout-topline">
               <button
                 className="flyout-close"
                 onClick={() => setFlyout(null)}
@@ -580,30 +829,14 @@ export default function Home() {
               </button>
             </div>
 
-            {flyout.isOwner && (
+            {flyout.isOwner ? (
               <div className="flyout-owner">
-                <div className="interject-composer">
-                  <textarea
-                    className="interject-input"
-                    placeholder="Send as your bot…"
-                    rows={2}
-                    value={interjectText}
-                    onChange={(e) => setInterjectText(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" && !e.shiftKey) {
-                        e.preventDefault();
-                        void sendInterject();
-                      }
-                    }}
-                  />
-                  <button
-                    className="interject-send"
-                    disabled={!interjectText.trim() || interjectBusy}
-                    onClick={() => void sendInterject()}
-                    type="button"
-                  >
-                    {interjectBusy ? "SENDING…" : "INTERJECT"}
-                  </button>
+                <div className="flyout-header">
+                  <AgentAvatar agent={flyout} large />
+                  <div className="flyout-info">
+                    <strong className="flyout-name">{flyout.botName}</strong>
+                    <span className="flyout-lease">{leaseLabel(flyout)} · Your Bot</span>
+                  </div>
                 </div>
                 <button
                   className="flyout-remove"
@@ -612,6 +845,86 @@ export default function Home() {
                   type="button"
                 >
                   {removing ? "REMOVING…" : "REMOVE FROM ARENA"}
+                </button>
+              </div>
+            ) : ownerAgent ? (
+              <div className="flyout-pair">
+                <div className="flyout-pair__avatars" aria-hidden="true">
+                  <AgentAvatar agent={ownerAgent} large />
+                  <span className="flyout-pair__connector">↔</span>
+                  <AgentAvatar agent={flyout} large />
+                </div>
+                <strong className="flyout-pair__label">
+                  {ownerAgent.botName} ↔ {flyout.botName}
+                </strong>
+                <span className="flyout-pair__presence">
+                  {flyout.botName} · {leaseLabel(flyout)}
+                </span>
+
+                <form
+                  className="owner-note-form"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void sendOwnerNote();
+                  }}
+                >
+                  <label className="owner-note-label" htmlFor="owner-note">
+                    Private note to {ownerAgent.botName}
+                  </label>
+                  <textarea
+                    className="owner-note-input"
+                    id="owner-note"
+                    maxLength={1_000}
+                    onChange={(event) => {
+                      setOwnerNote(event.target.value);
+                      if (ownerNoteState.phase !== "sending") {
+                        setOwnerNoteState({ phase: "idle" });
+                      }
+                    }}
+                    placeholder={`Give ${ownerAgent.botName} helpful context…`}
+                    rows={4}
+                    value={ownerNote}
+                  />
+                  <p className="owner-note-privacy">
+                    Only {ownerAgent.botName} receives this note. It decides whether
+                    and what to send to {flyout.botName}.
+                  </p>
+                  <button
+                    className="owner-note-send"
+                    disabled={
+                      !ownerNote.trim() || ownerNoteState.phase === "sending"
+                    }
+                    type="submit"
+                  >
+                    {ownerNoteState.phase === "sending"
+                      ? "NOTIFYING…"
+                      : `NOTIFY ${ownerAgent.botName}`}
+                  </button>
+                  {ownerNoteState.phase !== "idle" &&
+                    ownerNoteState.phase !== "sending" && (
+                      <p
+                        className={`owner-note-status owner-note-status--${ownerNoteState.phase}`}
+                        role="status"
+                      >
+                        {ownerNoteState.message}
+                      </p>
+                    )}
+                </form>
+              </div>
+            ) : (
+              <div className="flyout-connect-prompt">
+                <AgentAvatar agent={flyout} large />
+                <strong>{flyout.botName}</strong>
+                <p>Connect your Grok Bot before starting an agent conversation.</p>
+                <button
+                  className="room-action room-action--connect"
+                  onClick={() => {
+                    setFlyout(null);
+                    void beginConnect();
+                  }}
+                  type="button"
+                >
+                  CONNECT
                 </button>
               </div>
             )}

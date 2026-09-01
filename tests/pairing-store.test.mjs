@@ -91,6 +91,28 @@ test("roster marks the owner's agent as YOU", () => {
   assert.match(pageSource, /YOU<\/span>/);
 });
 
+test("roster generates a stable unique blockie from each agent id", () => {
+  assert.match(pageSource, /function createBlockie/);
+  assert.match(pageSource, /agent\.id.*agent\.botName/s);
+  assert.match(pageSource, /shapeRendering="crispEdges"/);
+  assert.match(pageSource, /const mirrorX = 7 - x/);
+});
+
+test("agent flyout sends private context to the owner's Bot", () => {
+  assert.match(pageSource, /\/api\/owner-instructions/);
+  assert.match(pageSource, /Private note to/);
+  assert.match(pageSource, /helpful context/);
+  assert.match(pageSource, /It decides whether/);
+  assert.doesNotMatch(pageSource, /COPY ID/);
+  assert.doesNotMatch(pageSource, /document\.execCommand\("copy"\)/);
+});
+
+test("agent messages open the same private kickoff flow", () => {
+  assert.match(pageSource, /function openMessageAgent/);
+  assert.match(pageSource, /onClick=\{\(\) => openMessageAgent\(msg\)\}/);
+  assert.match(pageSource, /flyout-pair__avatars/);
+});
+
 test("page restores waiting state from sessionStorage on refresh", () => {
   assert.match(pageSource, /sessionStorage\.getItem\(PAIRING_STORAGE_KEY\)/);
   assert.match(pageSource, /phase: "waiting"/);
@@ -101,6 +123,12 @@ test("named error messages for common failures", () => {
   assert.match(pageSource, /Open Grok Bot to finish\./);
   assert.match(pageSource, /This bot is already connected\./);
   assert.match(pageSource, /TRY AGAIN/);
+});
+
+test("pairing overlays can be dismissed without retrying", () => {
+  assert.match(pageSource, /function dismissConnectOverlay/);
+  assert.match(pageSource, /Dismiss connection dialog/);
+  assert.match(pageSource, /overlay-sheet__close/);
 });
 
 const connectionRouteSource = await readFile(
@@ -153,8 +181,8 @@ test("missed deep link does not auto-open fallback docs URL", () => {
   assert.doesNotMatch(pageSource, /docs\.x\.ai/);
 });
 
-test("CONNECT/REMOVE in header on desktop, bottom chrome on mobile", () => {
-  assert.match(pageSource, /header-action/);
+test("CONNECT/REMOVE in roster on desktop, bottom chrome on mobile", () => {
+  assert.match(pageSource, /roster-action/);
   assert.match(pageSource, /room-chrome/);
   assert.match(pageSource, /room-action--connect/);
   assert.match(pageSource, /room-action--remove/);
@@ -165,9 +193,20 @@ const cssSource = await readFile(
   "utf8",
 );
 
-test("desktop layout is side-by-side with action in header", () => {
-  assert.match(cssSource, /grid-template-columns:\s*minmax/);
+test("generated roster avatars render as clipped pixel blockies", () => {
+  assert.match(cssSource, /\.roster-avatar--blockie/);
+  assert.match(cssSource, /\.roster-avatar--blockie svg/);
+});
+
+test("desktop layout is side-by-side with a resizable roster action rail", () => {
+  assert.match(cssSource, /grid-template-columns:\s*var\(--roster-width/);
   assert.doesNotMatch(cssSource, /width:\s*min\(100%,\s*640px\)/);
-  assert.match(cssSource, /\.header-action\s*\{[^}]*display:\s*contents/s);
+  assert.match(cssSource, /\.roster-action\s*\{[^}]*display:\s*flex/s);
+  assert.match(cssSource, /\.roster-resize-handle\s*\{/);
   assert.match(cssSource, /\.room-chrome\s*\{[^}]*display:\s*none/s);
+});
+
+test("clickable transcript messages retain compact left-aligned typography", () => {
+  assert.match(cssSource, /\.message-body\s*\{[^}]*font-size:\s*13px/s);
+  assert.match(cssSource, /\.message-body\s*\{[^}]*text-align:\s*left/s);
 });

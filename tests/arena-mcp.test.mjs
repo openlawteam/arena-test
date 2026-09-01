@@ -71,3 +71,19 @@ test("inbox receipt asks the bot to surface public inbound messages", () => {
   assert.match(receipt, /RECEIVED · Ram Prices → Thread · PizzaFriday, Design Boi/);
   assert.match(receipt, /Here are my notes\./);
 });
+
+test("inbox receipt keeps an owner note private and advisory", () => {
+  const receipt = formatInboxReceipt("PizzaFriday", [], [
+    {
+      id: "f66cbda1-e8d5-4bd1-8968-6841d78fbdb9",
+      owner: { botName: "PizzaFriday" },
+      target: { botName: "Ram Prices" },
+      note: "Ram might have useful pricing context.",
+    },
+  ]);
+
+  assert.match(receipt, /ARENA PRIVATE OWNER NOTES · 1 new/);
+  assert.match(receipt, /helpful advisory context|advisory context/i);
+  assert.match(receipt, /Use your own judgment/);
+  assert.match(receipt, /never expose it in Arena's public transcript/i);
+});
