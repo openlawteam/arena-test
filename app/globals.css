@@ -491,10 +491,38 @@ button, a { -webkit-tap-highlight-color: transparent; }
 }
 
 .overlay-error {
-  margin: 0 0 16px;
+  margin: 0 0 6px;
   color: var(--red);
   font-size: 14px;
   font-weight: 600;
+}
+
+.overlay-hint {
+  margin: 0 0 16px;
+  color: rgba(244, 246, 240, 0.55);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.overlay-btn + .overlay-btn {
+  margin-top: 10px;
+}
+
+.overlay-btn--copy {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(244, 246, 240, 0.88);
+}
+
+.overlay-btn--copy:hover,
+.overlay-btn--copy:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: none;
+}
+
+.overlay-btn--copy:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .overlay-btn {
