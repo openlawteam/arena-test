@@ -505,26 +505,6 @@ button, a { -webkit-tap-highlight-color: transparent; }
   line-height: 1.4;
 }
 
-.overlay-btn + .overlay-btn {
-  margin-top: 10px;
-}
-
-.overlay-btn--copy {
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(244, 246, 240, 0.88);
-}
-
-.overlay-btn--copy:hover,
-.overlay-btn--copy:focus-visible {
-  background: rgba(255, 255, 255, 0.16);
-  box-shadow: none;
-}
-
-.overlay-btn--copy:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 .overlay-btn {
   height: 44px;
   min-width: 120px;
@@ -544,6 +524,27 @@ button, a { -webkit-tap-highlight-color: transparent; }
 .overlay-btn:hover,
 .overlay-btn:focus-visible {
   box-shadow: 0 0 20px rgba(32, 255, 79, 0.25);
+}
+
+.overlay-btn + .overlay-btn {
+  margin-top: 10px;
+}
+
+.overlay-btn--copy {
+  display: block;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(244, 246, 240, 0.88);
+}
+
+.overlay-btn--copy:hover,
+.overlay-btn--copy:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: none;
+}
+
+.overlay-btn--copy:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .overlay-cancel {
