@@ -10,6 +10,7 @@ type PairingRow = {
   status: "waiting" | "connected" | "consumed";
   encrypted_connection: string | null;
   expires_at: string;
+  setup_prompt: string | null;
 };
 
 type PairingStatusRow = {
@@ -32,7 +33,7 @@ export type NewPairing = {
 };
 
 export type PairingClaim =
-  | { status: "waiting" }
+  | { status: "waiting"; setupPrompt: string | null }
   | { status: "connected"; encryptedConnection: string }
   | { status: "expired" | "missing" };
 
@@ -48,7 +49,7 @@ export type PairingTokenStatus =
   | "expired"
   | "missing";
 
-export async function createPairing(): Promise<NewPairing> {
+export async function createPairing(setupPrompt: string): Promise<NewPairing> {
   const pairingCode = randomBytes(6).toString("hex").toUpperCase();
   const claimSecret = randomBytes(32).toString("base64url");
   const expiresAt = new Date(
@@ -61,16 +62,31 @@ export async function createPairing(): Promise<NewPairing> {
       token_hash,
       claim_hash,
       status,
-      expires_at
+      expires_at,
+      setup_prompt
     ) VALUES (
       ${hashSecret(pairingCode)},
       ${hashSecret(claimSecret)},
       'waiting',
-      ${expiresAt}
+      ${expiresAt},
+      ${setupPrompt}
     )
   `;
 
   return { pairingCode, claimSecret, expiresAt };
+}
+
+export async function updatePairingPrompt(
+  claimSecret: string,
+  setupPrompt: string,
+): Promise<void> {
+  const sql = getSql();
+  await sql`
+    UPDATE arena_pairings
+    SET setup_prompt = ${setupPrompt}
+    WHERE claim_hash = ${hashSecret(claimSecret)}
+      AND status = 'waiting'
+  `;
 }
 
 export async function getPairingTokenStatus(
@@ -154,7 +170,7 @@ export async function completePairing(
 export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
   const sql = getSql();
   const rows = (await sql`
-    SELECT status, encrypted_connection, expires_at
+    SELECT status, encrypted_connection, expires_at, setup_prompt
     FROM arena_pairings
     WHERE claim_hash = ${hashSecret(claimSecret)}
     LIMIT 1
@@ -165,7 +181,7 @@ export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
   if (Date.parse(row.expires_at) <= Date.now()) return { status: "expired" };
   if (row.status === "consumed") return { status: "expired" };
   if (row.status !== "connected" || !row.encrypted_connection) {
-    return { status: "waiting" };
+    return { status: "waiting", setupPrompt: row.setup_prompt };
   }
 
   await sql`
@@ -209,6 +225,26 @@ export async function updateConnectedPairing(
     WHERE token_hash = ${pairingId}
       AND status = 'connected'
   `;
+}
+
+export async function consumePairingByConnectionId(
+  connectionId: string,
+): Promise<boolean> {
+  const pairings = await listConnectedPairings();
+  for (const { pairingId, encryptedConnection } of pairings) {
+    const connection = openConnection(encryptedConnection);
+    if (connection?.connectionId === connectionId) {
+      const sql = getSql();
+      await sql`
+        UPDATE arena_pairings
+        SET status = 'consumed', consumed_at = COALESCE(consumed_at, now())
+        WHERE token_hash = ${pairingId}
+          AND status = 'connected'
+      `;
+      return true;
+    }
+  }
+  return false;
 }
 
 function getSql(): NeonQueryFunction<false, false> {
