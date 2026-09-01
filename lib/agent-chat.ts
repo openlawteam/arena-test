@@ -16,6 +16,7 @@ const MAX_MESSAGE_CHARACTERS = 1_000;
 const MAX_TARGETED_AGENTS = 50;
 const MAX_MENTIONED_AGENTS = 25;
 const NOTIFICATION_CONCURRENCY = 20;
+const MAX_PENDING_WAKE_RETRIES = 50;
 const GLOBAL_CONVERSATION_ID = "00000000-0000-4000-8000-000000000000";
 
 let sqlClient: NeonQueryFunction<false, false> | null = null;
@@ -101,10 +102,8 @@ export type PublicMessage = {
     | "pending"
     | "queued"
     | "notified"
-    | "partial"
     | "delivered"
-    | "read"
-    | "wake_failed";
+    | "read";
   delivery: {
     total: number;
     notified: number;
@@ -122,15 +121,15 @@ export type InboxMessage = PublicMessage & {
 export type MessageWakeResult = {
   agentId: string;
   botName: string;
-  status: "notified" | "failed";
+  status: "notified" | "pending";
   upstreamStatus?: number;
 };
 
 export type MessageDeliverySummary = {
-  status: "queued" | "notified" | "partial" | "failed";
+  status: "queued" | "notified" | "partial" | "pending";
   attempted: number;
   notified: number;
-  failed: number;
+  pending: number;
   results?: MessageWakeResult[];
 };
 
@@ -682,7 +681,7 @@ export function queuedMessageDelivery(
     status: "queued",
     attempted: recipients.length,
     notified: 0,
-    failed: 0,
+    pending: 0,
   };
 }
 
@@ -698,16 +697,37 @@ export async function notifyMessageRecipients(
   const notified = results.filter(
     (result) => result.status === "notified",
   ).length;
-  const failed = results.length - notified;
+  const pending = results.length - notified;
 
   return {
     status:
-      failed === 0 ? "notified" : notified === 0 ? "failed" : "partial",
+      pending === 0 ? "notified" : notified === 0 ? "pending" : "partial",
     attempted: results.length,
     notified,
-    failed,
+    pending,
     results,
   };
+}
+
+export async function retryPendingWakes(
+  agent: AuthenticatedAgent,
+): Promise<void> {
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT DISTINCT r.message_id
+    FROM arena_message_recipients AS r
+    WHERE r.recipient_token_hash = ${agent.pairingId}
+      AND r.wake_status IN ('pending', 'failed')
+      AND r.delivered_at IS NULL
+    ORDER BY r.message_id
+    LIMIT ${MAX_PENDING_WAKE_RETRIES}
+  `) as Array<{ message_id: string }>;
+
+  if (rows.length === 0) return;
+
+  for (const { message_id } of rows) {
+    await notifyMessageRecipient(message_id, agent);
+  }
 }
 
 async function notifyMessageRecipient(
@@ -745,9 +765,9 @@ async function notifyMessageRecipient(
 
     result = upstream.ok
       ? { status: "notified", upstreamStatus: upstream.status }
-      : { status: "failed", upstreamStatus: upstream.status };
+      : { status: "pending", upstreamStatus: upstream.status };
   } catch {
-    result = { status: "failed" };
+    result = { status: "pending" };
   }
 
   if (result.status === "notified") {
@@ -764,30 +784,32 @@ async function notifyMessageRecipient(
     // Message durability and delivery telemetry remain authoritative.
   }
 
-  try {
-    const sql = getSql();
-    await sql`
-      WITH recipient_update AS (
-        UPDATE arena_message_recipients
+  if (result.status === "notified") {
+    try {
+      const sql = getSql();
+      await sql`
+        WITH recipient_update AS (
+          UPDATE arena_message_recipients
+          SET
+            wake_status = 'notified',
+            wake_attempted_at = now(),
+            wake_upstream_status = ${result.upstreamStatus ?? null}
+          WHERE message_id = ${messageId}
+            AND recipient_token_hash = ${recipient.pairingId}
+          RETURNING message_id
+        )
+        UPDATE arena_messages
         SET
-          wake_status = ${result.status},
+          wake_status = 'notified',
           wake_attempted_at = now(),
           wake_upstream_status = ${result.upstreamStatus ?? null}
-        WHERE message_id = ${messageId}
+        WHERE id = ${messageId}
           AND recipient_token_hash = ${recipient.pairingId}
-        RETURNING message_id
-      )
-      UPDATE arena_messages
-      SET
-        wake_status = ${result.status},
-        wake_attempted_at = now(),
-        wake_upstream_status = ${result.upstreamStatus ?? null}
-      WHERE id = ${messageId}
-        AND recipient_token_hash = ${recipient.pairingId}
-        AND EXISTS (SELECT 1 FROM recipient_update)
-    `;
-  } catch {
-    // The message remains durable even if delivery telemetry cannot be updated.
+          AND EXISTS (SELECT 1 FROM recipient_update)
+      `;
+    } catch {
+      // The message remains durable even if delivery telemetry cannot be updated.
+    }
   }
 
   return {
@@ -969,9 +991,6 @@ function toPublicMessage(row: MessageRow): PublicMessage {
   const notified = recipients.filter(
     (recipient) => recipient.wakeStatus === "notified",
   ).length;
-  const failed = recipients.filter(
-    (recipient) => recipient.wakeStatus === "failed",
-  ).length;
   const delivered = recipients.filter(
     (recipient) => recipient.deliveredAt !== null,
   ).length;
@@ -985,13 +1004,11 @@ function toPublicMessage(row: MessageRow): PublicMessage {
         ? "read"
         : delivered === total
           ? "delivered"
-          : failed === total
-            ? "wake_failed"
-            : failed > 0
-              ? "partial"
-              : notified === total
-                ? "notified"
-                : "queued";
+          : notified === total
+            ? "notified"
+            : notified > 0
+              ? "pending"
+              : "queued";
   const audienceAgents = recipients.map(({ id, botName }) => ({ id, botName }));
   const audienceLabel = formatAudienceLabel(row.audience_type, audienceAgents);
   const singleRecipient = audienceAgents.length === 1 ? audienceAgents[0] : null;
@@ -1031,7 +1048,7 @@ function toPublicMessage(row: MessageRow): PublicMessage {
         ? latestTimestamp(recipients.map((recipient) => recipient.readAt))
         : null,
     deliveryStatus,
-    delivery: { total, notified, delivered, read, failed },
+    delivery: { total, notified, delivered, read, failed: 0 },
   };
 }
 

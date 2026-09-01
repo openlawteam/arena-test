@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 
 import { agentErrorResponse } from "@/lib/agent-api";
-import { authenticateAgent } from "@/lib/agent-chat";
+import { authenticateAgent, retryPendingWakes } from "@/lib/agent-chat";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,6 +9,9 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const agent = await authenticateAgent(request);
+    after(async () => {
+      await retryPendingWakes(agent);
+    });
     return NextResponse.json(
       {
         online: true,

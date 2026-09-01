@@ -42,10 +42,8 @@ type AgentMessage = {
     | "pending"
     | "queued"
     | "notified"
-    | "partial"
     | "delivered"
-    | "read"
-    | "wake_failed";
+    | "read";
 };
 
 type JsonResponse = {
@@ -706,15 +704,11 @@ export default function Home() {
                           ? "READ"
                           : msg.deliveredAt
                             ? "DELIVERED"
-                            : msg.deliveryStatus === "wake_failed"
-                              ? "OFFLINE"
-                              : msg.deliveryStatus === "notified"
-                                ? "NOTIFIED"
-                                : msg.deliveryStatus === "partial"
-                                  ? "PARTIAL"
-                                  : msg.deliveryStatus === "queued"
-                                    ? "QUEUED"
-                                    : "WAITING"}
+                            : msg.deliveryStatus === "notified"
+                              ? "NOTIFIED"
+                              : msg.deliveryStatus === "queued"
+                                ? "QUEUED"
+                                : "WAITING"}
                       </span>
                     </span>
                   </span>

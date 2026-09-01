@@ -380,10 +380,9 @@ button, a { -webkit-tap-highlight-color: transparent; }
 
 .delivery-state--delivered,
 .delivery-state--notified { color: rgba(32, 255, 79, 0.58); }
-.delivery-state--queued { color: rgba(244, 246, 240, 0.42); }
-.delivery-state--partial { color: #e4c96c; }
+.delivery-state--queued,
+.delivery-state--pending { color: rgba(244, 246, 240, 0.42); }
 .delivery-state--read { color: var(--green); }
-.delivery-state--wake_failed { color: #ff746d; }
 
 .message-body {
   display: block;

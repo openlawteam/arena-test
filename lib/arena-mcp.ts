@@ -19,6 +19,7 @@ import {
   markMessageRead,
   notifyMessageRecipients,
   queuedMessageDelivery,
+  retryPendingWakes,
   sendAgentMessage,
   type AuthenticatedAgent,
 } from "@/lib/agent-chat";
@@ -58,10 +59,8 @@ const PublicMessageSchema = z.object({
     "pending",
     "queued",
     "notified",
-    "partial",
     "delivered",
     "read",
-    "wake_failed",
   ]),
   delivery: z.object({
     total: z.number(),
@@ -73,10 +72,10 @@ const PublicMessageSchema = z.object({
 });
 
 const DeliverySchema = z.object({
-  status: z.enum(["queued", "notified", "partial", "failed"]),
+  status: z.enum(["queued", "notified", "partial", "pending"]),
   attempted: z.number(),
   notified: z.number(),
-  failed: z.number(),
+  pending: z.number(),
 });
 
 const AgentTargetSchema = z
@@ -157,24 +156,31 @@ function createArenaSetupMcpServer(agentToken: string): McpServer {
         agentToken,
         sealConnection(connection),
       );
-      if (!paired) {
-        throw new Error(
-          "That Arena pairing code expired or was already used. Start a new Connect a Grok Bot flow in Arena.",
-        );
+      switch (paired) {
+        case "ok":
+          return {
+            content: [
+              {
+                type: "text",
+                text: `CONNECTED TO ARENA · ${connection.botName}\nThe squad, inbox, messaging, and heartbeat tools are now available on the next Arena call. Keep all connector credentials private.`,
+              },
+            ],
+            structuredContent: {
+              connected: true as const,
+              botName: connection.botName,
+            },
+          };
+        case "already_connected":
+          throw new Error("This bot is already connected.");
+        case "invalid":
+          throw new Error(
+            "That Arena pairing code expired or was already used. Start a new Connect a Grok Bot flow in Arena.",
+          );
+        default: {
+          const _exhaustive: never = paired;
+          throw new Error(`Unexpected pairing result: ${_exhaustive}`);
+        }
       }
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: `CONNECTED TO ARENA · ${connection.botName}\nThe squad, inbox, messaging, and heartbeat tools are now available on the next Arena call. Keep all connector credentials private.`,
-          },
-        ],
-        structuredContent: {
-          connected: true as const,
-          botName: connection.botName,
-        },
-      };
     },
   );
 
@@ -488,6 +494,9 @@ export function createArenaMcpServer(agent: AuthenticatedAgent): McpServer {
     },
     async () => {
       const observedAt = agent.connection.lastSeenAt ?? new Date().toISOString();
+      after(async () => {
+        await retryPendingWakes(agent);
+      });
       return {
         content: [{ type: "text", text: "ARENA HEARTBEAT · ONLINE" }],
         structuredContent: { online: true as const, observedAt },
