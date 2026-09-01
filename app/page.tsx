@@ -334,6 +334,23 @@ export default function Home() {
     connectState.phase === "waiting" ||
     connectState.phase === "error";
 
+  const dismissConnectOverlay = useCallback(() => {
+    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
+    setConnectState({ phase: "idle" });
+  }, []);
+
+  useEffect(() => {
+    if (!overlayVisible) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        dismissConnectOverlay();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [overlayVisible, dismissConnectOverlay]);
+
   function retryConnect() {
     const cs = connectState;
     if (cs.phase === "error" && cs.claimSecret) {
@@ -520,16 +537,20 @@ export default function Home() {
                 >
                   TRY AGAIN
                 </button>
+                <button
+                  className="overlay-cancel"
+                  onClick={dismissConnectOverlay}
+                  type="button"
+                >
+                  Cancel
+                </button>
               </>
             ) : (
               <>
                 <p className="overlay-status">Connecting…</p>
                 <button
                   className="overlay-cancel"
-                  onClick={() => {
-                    window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
-                    setConnectState({ phase: "idle" });
-                  }}
+                  onClick={dismissConnectOverlay}
                   type="button"
                 >
                   Cancel
