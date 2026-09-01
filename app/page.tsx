@@ -800,19 +800,19 @@ export default function Home() {
                 <p className="overlay-error">{connectState.message}</p>
                 <p className="overlay-hint">Paste the prompt into that bot&apos;s chat and send.</p>
                 <button
+                  className="overlay-btn"
+                  onClick={retryConnect}
+                  type="button"
+                >
+                  TRY AGAIN
+                </button>
+                <button
                   className="overlay-btn overlay-btn--copy"
                   disabled={!connectState.prompt}
                   onClick={copyPrompt}
                   type="button"
                 >
                   {copyStatus === "copied" ? "COPIED" : copyStatus === "failed" ? "COPY FAILED" : "COPY PROMPT"}
-                </button>
-                <button
-                  className="overlay-btn"
-                  onClick={retryConnect}
-                  type="button"
-                >
-                  TRY AGAIN
                 </button>
                 <button
                   className="overlay-cancel"
