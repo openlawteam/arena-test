@@ -68,8 +68,8 @@ type JsonResponse = {
 type ConnectState =
   | { phase: "idle" }
   | { phase: "connecting" }
-  | { phase: "waiting"; claimSecret: string }
-  | { phase: "error"; message: string; claimSecret?: string };
+  | { phase: "waiting"; claimSecret: string; prompt?: string }
+  | { phase: "error"; message: string; claimSecret?: string; prompt?: string };
 
 type FlyoutTarget = AgentSummary & { isOwner: boolean };
 
@@ -215,6 +215,7 @@ export default function Home() {
     phase: "idle",
   });
   const [removing, setRemoving] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [rosterWidth, setRosterWidth] = useState(DEFAULT_ROSTER_WIDTH);
   const rosterResizeRef = useRef<{
     pointerId: number;
@@ -367,7 +368,7 @@ export default function Home() {
       }
 
       window.sessionStorage.setItem(PAIRING_STORAGE_KEY, body.claimSecret);
-      setConnectState({ phase: "waiting", claimSecret: body.claimSecret });
+      setConnectState({ phase: "waiting", claimSecret: body.claimSecret, prompt: body.prompt });
       openGrokBot();
     } catch {
       setConnectState({
@@ -392,7 +393,7 @@ export default function Home() {
         if (connectStateRef.current.phase === "waiting") {
           setConnectState((prev) =>
             prev.phase === "waiting"
-              ? { phase: "error", message: "Open Grok Bot to finish.", claimSecret: prev.claimSecret }
+              ? { phase: "error", message: "Open Grok Bot to finish.", claimSecret: prev.claimSecret, prompt: prev.prompt }
               : prev,
           );
         }
@@ -525,6 +526,7 @@ export default function Home() {
   const dismissConnectOverlay = useCallback(() => {
     window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
     setConnectState({ phase: "idle" });
+    setCopyStatus("idle");
   }, []);
 
   useEffect(() => {
@@ -542,11 +544,22 @@ export default function Home() {
   function retryConnect() {
     const cs = connectState;
     if (cs.phase === "error" && cs.claimSecret) {
-      setConnectState({ phase: "waiting", claimSecret: cs.claimSecret });
+      setConnectState({ phase: "waiting", claimSecret: cs.claimSecret, prompt: cs.prompt });
       openGrokBot();
     } else {
       void beginConnect();
     }
+  }
+
+  async function copyPrompt() {
+    if (connectState.phase !== "error" || !connectState.prompt) return;
+    try {
+      await navigator.clipboard.writeText(connectState.prompt);
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+    window.setTimeout(() => setCopyStatus("idle"), 2_000);
   }
 
   function beginRosterResize(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -785,6 +798,15 @@ export default function Home() {
             {connectState.phase === "error" ? (
               <>
                 <p className="overlay-error">{connectState.message}</p>
+                <p className="overlay-hint">Paste the prompt into that bot&apos;s chat and send.</p>
+                <button
+                  className="overlay-btn overlay-btn--copy"
+                  disabled={!connectState.prompt}
+                  onClick={copyPrompt}
+                  type="button"
+                >
+                  {copyStatus === "copied" ? "COPIED" : copyStatus === "failed" ? "COPY FAILED" : "COPY PROMPT"}
+                </button>
                 <button
                   className="overlay-btn"
                   onClick={retryConnect}

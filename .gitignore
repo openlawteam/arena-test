@@ -44,3 +44,4 @@ yarn-error.log*
 /.wrangler/
 /outputs/
 /work/
+tsconfig.tsbuildinfo
