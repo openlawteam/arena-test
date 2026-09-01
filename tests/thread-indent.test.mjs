@@ -49,8 +49,8 @@ test("CSS defines reply indent and left rail", () => {
   );
   assert.match(
     cssSource,
-    /\.message-row--reply[\s\S]*?border-left:\s*2px/,
-    "reply rows must have a 2px left rail",
+    /\.message-row--reply[\s\S]*?border-left:\s*2px solid rgba\(32,\s*255,\s*79/,
+    "reply rows must have a 2px left rail in quiet green",
   );
 });
 
