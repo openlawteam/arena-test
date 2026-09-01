@@ -99,6 +99,7 @@ test("page restores waiting state from sessionStorage on refresh", () => {
 test("named error messages for common failures", () => {
   assert.match(pageSource, /Connect expired\./);
   assert.match(pageSource, /Open Grok Bot to finish\./);
+  assert.match(pageSource, /This bot is already connected\./);
   assert.match(pageSource, /TRY AGAIN/);
 });
 
@@ -116,14 +117,31 @@ const completeRouteSource = await readFile(
   "utf8",
 );
 
-test("already-connected webhook returns named error", () => {
+test("already-connected webhook returns named error from complete route", () => {
   assert.match(completeRouteSource, /already_connected/);
   assert.match(completeRouteSource, /This bot is already connected\./);
 });
 
-test("completePairing returns already_connected for duplicate webhook", () => {
+test("completePairing marks row consumed with fail_reason on duplicate", () => {
   assert.match(source, /already_connected/);
+  assert.match(source, /fail_reason = 'already_connected'/);
   assert.match(source, /export type CompletePairingResult/);
+});
+
+test("claimPairing returns already_connected when fail_reason is set", () => {
+  assert.match(source, /fail_reason === "already_connected"/);
+  assert.match(source, /status: "already_connected"/);
+});
+
+test("status endpoint returns 409 for already-connected claims", () => {
+  assert.match(statusRouteSource, /already_connected/);
+  assert.match(statusRouteSource, /409/);
+  assert.match(statusRouteSource, /This bot is already connected\./);
+});
+
+test("browser poll detects 409 and shows already-connected error", () => {
+  assert.match(pageSource, /res\.status === 409/);
+  assert.match(pageSource, /This bot is already connected\./);
 });
 
 test("remove drops roster row optimistically (no 5s ghost)", () => {

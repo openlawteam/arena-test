@@ -29,6 +29,12 @@ export async function POST(request: Request) {
         { headers: { "cache-control": "no-store" } },
       );
     }
+    if (claim.status === "already_connected") {
+      return NextResponse.json(
+        { status: "already_connected", error: "This bot is already connected." },
+        { status: 409, headers: { "cache-control": "no-store" } },
+      );
+    }
     if (claim.status !== "connected") {
       return NextResponse.json(
         { status: claim.status, error: "This pairing session expired. Copy a new prompt." },

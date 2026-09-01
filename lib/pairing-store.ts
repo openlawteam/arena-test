@@ -11,6 +11,7 @@ type PairingRow = {
   encrypted_connection: string | null;
   expires_at: string;
   setup_prompt: string | null;
+  fail_reason: string | null;
 };
 
 type PairingStatusRow = {
@@ -35,6 +36,7 @@ export type NewPairing = {
 export type PairingClaim =
   | { status: "waiting"; setupPrompt: string | null }
   | { status: "connected"; encryptedConnection: string }
+  | { status: "already_connected" }
   | { status: "expired" | "missing" };
 
 export type StoredConnection = {
@@ -125,6 +127,8 @@ export async function completePairing(
   if (!/^[A-F0-9]{12}$/.test(pairingCode)) return "invalid";
   if (!/^[A-Za-z0-9_-]{40,64}$/.test(agentToken)) return "invalid";
 
+  const pendingPairingId = hashSecret(pairingCode);
+
   const newConn = openConnection(encryptedConnection);
   if (newConn) {
     const existingRows = (await sql`
@@ -140,12 +144,18 @@ export async function completePairing(
         existingRow.last_seen_at,
       );
       if (existingConn?.webhookUrl === newConn.webhookUrl) {
+        await sql`
+          UPDATE arena_pairings
+          SET status = 'consumed',
+              consumed_at = COALESCE(consumed_at, now()),
+              fail_reason = 'already_connected'
+          WHERE token_hash = ${pendingPairingId}
+            AND status = 'waiting'
+        `;
         return "already_connected";
       }
     }
   }
-
-  const pendingPairingId = hashSecret(pairingCode);
   const pairingId = hashSecret(agentToken);
   const rows = await sql`
     UPDATE arena_pairings
@@ -168,7 +178,7 @@ export async function completePairing(
 export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
   const sql = getSql();
   const rows = (await sql`
-    SELECT status, encrypted_connection, expires_at, setup_prompt
+    SELECT status, encrypted_connection, expires_at, setup_prompt, fail_reason
     FROM arena_pairings
     WHERE claim_hash = ${hashSecret(claimSecret)}
     LIMIT 1
@@ -176,6 +186,9 @@ export async function claimPairing(claimSecret: string): Promise<PairingClaim> {
   const row = rows[0];
 
   if (!row) return { status: "missing" };
+  if (row.status === "consumed" && row.fail_reason === "already_connected") {
+    return { status: "already_connected" };
+  }
   if (Date.parse(row.expires_at) <= Date.now()) return { status: "expired" };
   if (row.status === "consumed") return { status: "expired" };
   if (row.status !== "connected" || !row.encrypted_connection) {

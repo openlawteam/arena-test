@@ -200,6 +200,11 @@ export default function Home() {
           window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
           return;
         }
+        if (res.status === 409) {
+          setConnectState({ phase: "error", message: "This bot is already connected." });
+          window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
+          return;
+        }
         if (res.status === 410) {
           setConnectState({ phase: "error", message: "Connect expired." });
           window.sessionStorage.removeItem(PAIRING_STORAGE_KEY);
