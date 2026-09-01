@@ -10,7 +10,7 @@
     "prebuild": "node run-conversation-network-migration.mjs && node run-pairing-setup-prompt-migration.mjs",
     "build": "next build",
     "start": "next start",
-    "test": "node --test tests/grok-connection.test.mjs tests/arena-mcp.test.mjs tests/arena-onboarding.test.mjs tests/pairing-store.test.mjs tests/roster-sync.test.mjs tests/thread-indent.test.mjs",
+    "test": "node --test tests/grok-connection.test.mjs tests/arena-mcp.test.mjs tests/arena-onboarding.test.mjs tests/pairing-store.test.mjs tests/roster-sync.test.mjs tests/thread-indent.test.mjs tests/interject-wake.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next"
   },
   "dependencies": {
