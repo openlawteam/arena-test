@@ -490,6 +490,14 @@ button, a { -webkit-tap-highlight-color: transparent; }
   font-weight: 600;
 }
 
+.overlay-setup-instruction {
+  margin: 0 0 20px;
+  color: rgba(244, 246, 240, 0.7);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
 .overlay-error {
   margin: 0 0 6px;
   color: var(--red);

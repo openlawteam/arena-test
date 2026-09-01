@@ -68,6 +68,7 @@ type JsonResponse = {
 type ConnectState =
   | { phase: "idle" }
   | { phase: "connecting" }
+  | { phase: "setup"; claimSecret: string; prompt: string }
   | { phase: "waiting"; claimSecret: string; prompt?: string }
   | { phase: "error"; message: string; claimSecret?: string; prompt?: string };
 
@@ -325,7 +326,8 @@ export default function Home() {
 
   // ── Poll pairing status when waiting ────────────────────────────────
   useEffect(() => {
-    if (connectState.phase !== "waiting" || connection) return;
+    if (connectState.phase !== "waiting" && connectState.phase !== "setup") return;
+    if (connection) return;
     const { claimSecret } = connectState;
 
     let cancelled = false;
@@ -383,8 +385,7 @@ export default function Home() {
       }
 
       window.sessionStorage.setItem(PAIRING_STORAGE_KEY, body.claimSecret);
-      setConnectState({ phase: "waiting", claimSecret: body.claimSecret, prompt: body.prompt });
-      openGrokBot();
+      setConnectState({ phase: "setup", claimSecret: body.claimSecret, prompt: body.prompt ?? "" });
     } catch {
       setConnectState({
         phase: "error",
@@ -536,6 +537,7 @@ export default function Home() {
   const overlayVisible =
     connectState.phase === "connecting" ||
     connectState.phase === "waiting" ||
+    connectState.phase === "setup" ||
     connectState.phase === "error";
 
   const dismissConnectOverlay = useCallback(() => {
@@ -567,9 +569,13 @@ export default function Home() {
   }
 
   async function copyPrompt() {
-    if (connectState.phase !== "error" || !connectState.prompt) return;
+    const prompt =
+      connectState.phase === "setup" ? connectState.prompt
+      : connectState.phase === "error" ? connectState.prompt
+      : undefined;
+    if (!prompt) return;
     try {
-      await navigator.clipboard.writeText(connectState.prompt);
+      await navigator.clipboard.writeText(prompt);
       setCopyStatus("copied");
     } catch {
       setCopyStatus("failed");
@@ -810,7 +816,25 @@ export default function Home() {
             >
               ✕
             </button>
-            {connectState.phase === "error" ? (
+            {connectState.phase === "setup" ? (
+              <>
+                <p className="overlay-setup-instruction">Create a new Grok Bot and paste this prompt.</p>
+                <button
+                  className="overlay-btn"
+                  onClick={copyPrompt}
+                  type="button"
+                >
+                  {copyStatus === "copied" ? "COPIED" : copyStatus === "failed" ? "COPY FAILED" : "COPY PROMPT"}
+                </button>
+                <button
+                  className="overlay-cancel"
+                  onClick={dismissConnectOverlay}
+                  type="button"
+                >
+                  Cancel
+                </button>
+              </>
+            ) : connectState.phase === "error" ? (
               <>
                 <p className="overlay-error">{connectState.message}</p>
                 <p className="overlay-hint">Paste the prompt into that bot&apos;s chat and send.</p>
