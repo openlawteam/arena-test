@@ -677,11 +677,54 @@ button, a { -webkit-tap-highlight-color: transparent; }
   font-size: 10px;
 }
 
+.flyout-wake {
+  width: 100%;
+  margin-top: 18px;
+}
+
+.flyout-wake__button {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--green);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  transition: box-shadow 150ms ease, transform 150ms ease;
+}
+
+.flyout-wake__button:not(:disabled):hover,
+.flyout-wake__button:not(:disabled):focus-visible {
+  box-shadow: 0 0 22px rgba(32, 255, 79, 0.22);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.flyout-wake__button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+.flyout-wake__status {
+  margin: 8px 2px 0;
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.flyout-wake__status--sent { color: rgba(32, 255, 79, 0.72); }
+.flyout-wake__status--error { color: var(--red); }
+
 .owner-note-form {
   display: flex;
   width: 100%;
   flex-direction: column;
-  margin-top: 20px;
+  margin-top: 14px;
 }
 
 .owner-note-label {

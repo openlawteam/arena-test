@@ -80,6 +80,12 @@ type OwnerNoteState =
   | { phase: "sent"; message: string }
   | { phase: "error"; message: string };
 
+type WakeAgentState =
+  | { phase: "idle" }
+  | { phase: "sending" }
+  | { phase: "sent"; message: string }
+  | { phase: "error"; message: string };
+
 type AvatarAgent = Pick<AgentSummary, "avatarUrl" | "botName" | "id">;
 
 const PAIRING_STORAGE_KEY = "arena_pairing_claim";
@@ -248,6 +254,9 @@ export default function Home() {
   const [ownerNoteState, setOwnerNoteState] = useState<OwnerNoteState>({
     phase: "idle",
   });
+  const [wakeAgentState, setWakeAgentState] = useState<WakeAgentState>({
+    phase: "idle",
+  });
   const [removing, setRemoving] = useState(false);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied" | "failed">("idle");
   const [rosterWidth, setRosterWidth] = useState(DEFAULT_ROSTER_WIDTH);
@@ -258,9 +267,15 @@ export default function Home() {
   } | null>(null);
 
   const connectStateRef = useRef(connectState);
-  connectStateRef.current = connectState;
   const connectionRef = useRef(connection);
-  connectionRef.current = connection;
+
+  useEffect(() => {
+    connectStateRef.current = connectState;
+  }, [connectState]);
+
+  useEffect(() => {
+    connectionRef.current = connection;
+  }, [connection]);
 
   useEffect(() => {
     const keepRosterInViewport = () => {
@@ -455,10 +470,62 @@ export default function Home() {
   function openAgentFlyout(agent: AgentSummary) {
     setOwnerNote("");
     setOwnerNoteState({ phase: "idle" });
+    setWakeAgentState({ phase: "idle" });
     setFlyout({
       ...agent,
       isOwner: agent.id === connection?.connectionId,
     });
+  }
+
+  async function wakeAgent() {
+    if (
+      !flyout ||
+      flyout.isOwner ||
+      wakeAgentState.phase === "sending" ||
+      wakeAgentState.phase === "sent"
+    ) {
+      return;
+    }
+
+    setWakeAgentState({ phase: "sending" });
+    try {
+      const res = await fetch("/api/wake-agent", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ targetAgentId: flyout.id }),
+      });
+      const body = (await res.json()) as JsonResponse & { acceptedAt?: string };
+      if (!res.ok) {
+        setWakeAgentState({
+          phase: "error",
+          message: body.error || "Arena could not wake that agent.",
+        });
+        return;
+      }
+
+      const acceptedAt = body.acceptedAt ?? new Date().toISOString();
+      setAgents((current) =>
+        current.map((agent) =>
+          agent.id === flyout.id
+            ? { ...agent, lastWakeAt: acceptedAt, status: "online" }
+            : agent,
+        ),
+      );
+      setFlyout((current) =>
+        current?.id === flyout.id
+          ? { ...current, lastWakeAt: acceptedAt, status: "online" }
+          : current,
+      );
+      setWakeAgentState({
+        phase: "sent",
+        message: `Wake sent to ${flyout.botName}.`,
+      });
+    } catch {
+      setWakeAgentState({
+        phase: "error",
+        message: "Network error — try again.",
+      });
+    }
   }
 
   async function sendOwnerNote() {
@@ -952,6 +1019,33 @@ export default function Home() {
                 <span className="flyout-pair__presence">
                   {flyout.botName} · {leaseLabel(flyout)}
                 </span>
+
+                <div className="flyout-wake">
+                  <button
+                    className="flyout-wake__button"
+                    disabled={
+                      wakeAgentState.phase === "sending" ||
+                      wakeAgentState.phase === "sent"
+                    }
+                    onClick={() => void wakeAgent()}
+                    type="button"
+                  >
+                    {wakeAgentState.phase === "sending"
+                      ? "WAKING…"
+                      : wakeAgentState.phase === "sent"
+                        ? "WAKE SENT"
+                        : `WAKE ${flyout.botName}`}
+                  </button>
+                  {wakeAgentState.phase !== "idle" &&
+                    wakeAgentState.phase !== "sending" && (
+                      <p
+                        className={`flyout-wake__status flyout-wake__status--${wakeAgentState.phase}`}
+                        role="status"
+                      >
+                        {wakeAgentState.message}
+                      </p>
+                    )}
+                </div>
 
                 <form
                   className="owner-note-form"
